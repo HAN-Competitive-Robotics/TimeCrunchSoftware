@@ -1,0 +1,120 @@
+#include "esb_ptx.h"
+
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/util.h>
+
+LOG_MODULE_REGISTER(esb_radio, CONFIG_ESB_PTX_APP_LOG_LEVEL);
+
+static volatile bool g_ready = true;
+
+static struct esb_payload rx_payload;
+
+static void event_handler(struct esb_evt const *event)
+{
+    switch (event->evt_id)
+    {
+    case ESB_EVENT_TX_SUCCESS:
+        g_ready = true;
+        LOG_DBG("ESB TX success");
+        break;
+
+    case ESB_EVENT_TX_FAILED:
+        g_ready = true;
+        LOG_DBG("ESB TX failed");
+        break;
+
+    case ESB_EVENT_RX_RECEIVED:
+        /* PTX usually only receives ACK payloads if enabled. */
+        while (esb_read_rx_payload(&rx_payload) == 0)
+        {
+            LOG_DBG("ESB RX len %d: %02x %02x %02x %02x %02x %02x %02x %02x",
+                    rx_payload.length,
+                    rx_payload.data[0], rx_payload.data[1], rx_payload.data[2], rx_payload.data[3],
+                    rx_payload.data[4], rx_payload.data[5], rx_payload.data[6], rx_payload.data[7]);
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+struct esb_payload esb_radio_default_payload(void)
+{
+    /* Matches your old ESB_CREATE_PAYLOAD(0, ...) usage */
+    struct esb_payload pl = ESB_CREATE_PAYLOAD(0,
+                                               0x01, 0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08);
+    pl.noack = false;
+    return pl;
+}
+
+int esb_radio_init(void)
+{
+    int err;
+
+    /* Default demo addresses (fine for bring-up; change for real products). */
+    uint8_t base_addr_0[4] = {0xE7, 0xE7, 0xE7, 0xE7};
+    uint8_t base_addr_1[4] = {0xC2, 0xC2, 0xC2, 0xC2};
+    uint8_t addr_prefix[8] = {0xE7, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8};
+
+    struct esb_config config = ESB_DEFAULT_CONFIG;
+
+    config.protocol = ESB_PROTOCOL_ESB_DPL;
+    config.retransmit_delay = 600;
+    config.bitrate = ESB_BITRATE_2MBPS;
+    config.event_handler = event_handler;
+    config.mode = ESB_MODE_PTX;
+    config.selective_auto_ack = true;
+
+    if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING))
+    {
+        config.use_fast_ramp_up = true;
+    }
+
+    err = esb_init(&config);
+    if (err)
+    {
+        LOG_ERR("esb_init failed: %d", err);
+        return err;
+    }
+
+    err = esb_set_base_address_0(base_addr_0);
+    if (err)
+    {
+        LOG_ERR("set_base_address_0 failed: %d", err);
+        return err;
+    }
+
+    err = esb_set_base_address_1(base_addr_1);
+    if (err)
+    {
+        LOG_ERR("set_base_address_1 failed: %d", err);
+        return err;
+    }
+
+    err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
+    if (err)
+    {
+        LOG_ERR("set_prefixes failed: %d", err);
+        return err;
+    }
+
+    g_ready = true;
+    LOG_INF("ESB radio initialized (PTX)");
+    return 0;
+}
+
+bool esb_radio_ready(void)
+{
+    return g_ready;
+}
+
+int esb_radio_send(struct esb_payload *pl)
+{
+    int err = esb_write_payload(pl);
+    if (err == 0)
+    {
+        g_ready = false; // only clear when queued successfully
+    }
+    return err;
+}
