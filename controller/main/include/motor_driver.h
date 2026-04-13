@@ -3,8 +3,8 @@
 #include <stdint.h>
 
 // GPIO pin assignments for each motor
-#define MOTOR_PIN_RIGHT_WHEEL  18
-#define MOTOR_PIN_LEFT_WHEEL   19
+#define MOTOR_PIN_RIGHT_WHEEL  25
+#define MOTOR_PIN_LEFT_WHEEL   26
 #define MOTOR_PIN_WEAPON       21
 
 typedef enum {

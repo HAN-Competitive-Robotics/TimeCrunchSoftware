@@ -3,7 +3,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "motor_driver.h"
-#include "include/nrf24.h"
+#include "nrf24.h"
 
 static const char *TAG = "MAIN";
 

@@ -112,71 +112,73 @@ extern "C"
 #define NRF_RF_SETUP_2MBPS 0x0E
 #define NRF_RF_SETUP_250KBPS 0x26
 
-    // =========================
-    // Public state
-    // =========================
-    extern spi_device_handle_t nrf24_spi;
+// =========================
+// Public state
+// =========================
+extern spi_device_handle_t nrf24_spi;
 
-    // =========================
-    // Init
-    // =========================
-    esp_err_t nrf24_init(void);
-    esp_err_t nrf24_init_spi(void);
-    esp_err_t nrf24_init_gpio(void);
+// =========================
+// Init
+// =========================
+esp_err_t nrf24_init(void);
+esp_err_t nrf24_init_spi(void);
+esp_err_t nrf24_init_gpio(void);
 
-    // =========================
-    // Low-level helpers
-    // =========================
-    esp_err_t nrf24_spi_transfer(const uint8_t *tx, uint8_t *rx, size_t len);
-    uint8_t nrf24_get_status(void);
-    uint8_t nrf24_read_reg(uint8_t reg);
-    esp_err_t nrf24_write_reg(uint8_t reg, uint8_t value);
-    esp_err_t nrf24_read_reg_checked(uint8_t reg, uint8_t *value);
-    esp_err_t nrf24_read_buf(uint8_t reg, uint8_t *data, size_t len);
-    esp_err_t nrf24_write_buf(uint8_t reg, const uint8_t *data, size_t len);
-    esp_err_t nrf24_command(uint8_t cmd);
+// =========================
+// Low-level helpers
+// =========================
+esp_err_t nrf24_spi_transfer(const uint8_t *tx, uint8_t *rx, size_t len);
+uint8_t nrf24_get_status(void);
+uint8_t nrf24_read_reg(uint8_t reg);
+esp_err_t nrf24_read_reg_checked(uint8_t reg, uint8_t *value);
+esp_err_t nrf24_write_reg(uint8_t reg, uint8_t value);
+esp_err_t nrf24_read_buf(uint8_t reg, uint8_t *data, size_t len);
+esp_err_t nrf24_write_buf(uint8_t reg, const uint8_t *data, size_t len);
+esp_err_t nrf24_command(uint8_t cmd);
 
-    // =========================
-    // GPIO helpers
-    // =========================
-    void nrf24_ce_high(void);
-    void nrf24_ce_low(void);
+// =========================
+// GPIO helpers
+// =========================
+void nrf24_ce_high(void);
+void nrf24_ce_low(void);
+void nrf24_csn_high(void);
+void nrf24_csn_low(void);
 
-    // =========================
-    // Configuration helpers
-    // =========================
-    esp_err_t nrf24_clear_irqs(void);
-    esp_err_t nrf24_flush_tx(void);
-    esp_err_t nrf24_flush_rx(void);
-    esp_err_t nrf24_power_up(void);
-    esp_err_t nrf24_power_down(void);
-    esp_err_t nrf24_set_channel(uint8_t channel);
-    esp_err_t nrf24_set_rf_setup(uint8_t rf_setup);
-    esp_err_t nrf24_set_retries(uint8_t ard, uint8_t arc);
-    esp_err_t nrf24_set_address_width_5bytes(void);
-    esp_err_t nrf24_set_tx_address(const uint8_t *addr, size_t len);
-    esp_err_t nrf24_set_rx_address_p0(const uint8_t *addr, size_t len);
-    esp_err_t nrf24_set_payload_width_p0(uint8_t width);
+// =========================
+// Configuration helpers
+// =========================
+esp_err_t nrf24_clear_irqs(void);
+esp_err_t nrf24_flush_tx(void);
+esp_err_t nrf24_flush_rx(void);
+esp_err_t nrf24_power_up(void);
+esp_err_t nrf24_power_down(void);
+esp_err_t nrf24_set_channel(uint8_t channel);
+esp_err_t nrf24_set_rf_setup(uint8_t rf_setup);
+esp_err_t nrf24_set_retries(uint8_t ard, uint8_t arc);
+esp_err_t nrf24_set_address_width_5bytes(void);
+esp_err_t nrf24_set_tx_address(const uint8_t *addr, size_t len);
+esp_err_t nrf24_set_rx_address_p0(const uint8_t *addr, size_t len);
+esp_err_t nrf24_set_payload_width_p0(uint8_t width);
 
-    // =========================
-    // Operating modes
-    // =========================
-    esp_err_t nrf24_set_rx_mode(void);
-    esp_err_t nrf24_set_tx_mode(void);
+// =========================
+// Operating modes
+// =========================
+esp_err_t nrf24_set_rx_mode(void);
+esp_err_t nrf24_set_tx_mode(void);
 
-    // =========================
-    // Data transfer
-    // =========================
-    esp_err_t nrf24_write_tx_payload(const uint8_t *data, size_t len);
-    esp_err_t nrf24_read_rx_payload(uint8_t *data, size_t len);
-    bool nrf24_data_ready(void);
-    esp_err_t nrf24_send_packet(const uint8_t *data, size_t len);
-    esp_err_t nrf24_receive_packet(uint8_t *data, size_t len);
+// =========================
+// Data transfer
+// =========================
+esp_err_t nrf24_write_tx_payload(const uint8_t *data, size_t len);
+esp_err_t nrf24_read_rx_payload(uint8_t *data, size_t len);
+bool nrf24_data_ready(void);
+esp_err_t nrf24_send_packet(const uint8_t *data, size_t len);
+esp_err_t nrf24_receive_packet(uint8_t *data, size_t len);
 
-    // =========================
-    // Convenience setup
-    // =========================
-    esp_err_t nrf24_basic_config(const uint8_t *addr, uint8_t channel, uint8_t payload_len);
+// =========================
+// Convenience setup
+// =========================
+esp_err_t nrf24_basic_config(const uint8_t *addr, uint8_t channel, uint8_t payload_len);
 
 #ifdef __cplusplus
 }

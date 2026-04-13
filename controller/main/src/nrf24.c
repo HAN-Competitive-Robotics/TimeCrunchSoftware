@@ -1,4 +1,4 @@
-#include "include/nrf24.h"
+#include "nrf24.h"
 
 #include <string.h>
 
@@ -11,6 +11,26 @@ static const char *TAG = "NRF24";
 
 spi_device_handle_t nrf24_spi = NULL;
 
+void nrf24_ce_high(void)
+{
+    gpio_set_level(NRF24_PIN_CE, 1);
+}
+
+void nrf24_ce_low(void)
+{
+    gpio_set_level(NRF24_PIN_CE, 0);
+}
+
+void nrf24_csn_high(void)
+{
+    gpio_set_level(NRF24_PIN_CSN, 1);
+}
+
+void nrf24_csn_low(void)
+{
+    gpio_set_level(NRF24_PIN_CSN, 0);
+}
+
 static esp_err_t nrf24_write_raw(const uint8_t *tx, uint8_t *rx, size_t len)
 {
     if (nrf24_spi == NULL)
@@ -19,12 +39,17 @@ static esp_err_t nrf24_write_raw(const uint8_t *tx, uint8_t *rx, size_t len)
     }
 
     spi_transaction_t t = {
+        .flags = 0,
         .length = len * 8,
         .tx_buffer = tx,
         .rx_buffer = rx,
     };
 
-    return spi_device_polling_transmit(nrf24_spi, &t);
+    nrf24_csn_low();
+    esp_err_t err = spi_device_polling_transmit(nrf24_spi, &t);
+    nrf24_csn_high();
+
+    return err;
 }
 
 esp_err_t nrf24_spi_transfer(const uint8_t *tx, uint8_t *rx, size_t len)
@@ -35,16 +60,6 @@ esp_err_t nrf24_spi_transfer(const uint8_t *tx, uint8_t *rx, size_t len)
     }
 
     return nrf24_write_raw(tx, rx, len);
-}
-
-void nrf24_ce_high(void)
-{
-    gpio_set_level(NRF24_PIN_CE, 1);
-}
-
-void nrf24_ce_low(void)
-{
-    gpio_set_level(NRF24_PIN_CE, 0);
 }
 
 esp_err_t nrf24_init_gpio(void)
@@ -58,6 +73,16 @@ esp_err_t nrf24_init_gpio(void)
     };
     ESP_ERROR_CHECK(gpio_config(&ce_cfg));
     nrf24_ce_low();
+
+    gpio_config_t csn_cfg = {
+        .pin_bit_mask = (1ULL << NRF24_PIN_CSN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&csn_cfg));
+    nrf24_csn_high();
 
     gpio_config_t irq_cfg = {
         .pin_bit_mask = (1ULL << NRF24_PIN_IRQ),
@@ -85,12 +110,12 @@ esp_err_t nrf24_init_spi(void)
     spi_device_interface_config_t devcfg = {
         .clock_speed_hz = 1000000,
         .mode = 0,
-        .spics_io_num = NRF24_PIN_CSN,
+        .spics_io_num = -1,
         .queue_size = 1,
         .flags = 0,
     };
 
-    esp_err_t err = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_DISABLED);
+    esp_err_t err = spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_DISABLED);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
     {
         return err;
@@ -98,7 +123,7 @@ esp_err_t nrf24_init_spi(void)
 
     if (nrf24_spi == NULL)
     {
-        ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &devcfg, &nrf24_spi));
+        ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &nrf24_spi));
     }
 
     return ESP_OK;
@@ -158,6 +183,7 @@ esp_err_t nrf24_write_reg(uint8_t reg, uint8_t value)
     uint8_t tx[2] = {
         (uint8_t)(NRF_CMD_W_REGISTER | (reg & 0x1F)),
         value};
+
     return nrf24_spi_transfer(tx, NULL, sizeof(tx));
 }
 
