@@ -41,10 +41,17 @@ static void event_handler(struct esb_evt const *event)
 
 struct esb_payload esb_radio_default_payload(void)
 {
-    /* Matches your old ESB_CREATE_PAYLOAD(0, ...) usage */
-    struct esb_payload pl = ESB_CREATE_PAYLOAD(0,
-                                               0x01, 0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08);
+    struct esb_payload pl = {0};
+
+    pl.pipe = 0;
+    pl.length = 4;
     pl.noack = false;
+
+    pl.data[0] = 0x01;
+    pl.data[1] = 0x00;
+    pl.data[2] = 0x03;
+    pl.data[3] = 0x04;
+
     return pl;
 }
 
@@ -53,19 +60,20 @@ int esb_radio_init(void)
     int err;
 
     /* Default demo addresses (fine for bring-up; change for real products). */
-    uint8_t base_addr_0[4] = {0xE7, 0xE7, 0xE7, 0xE7};
+    uint8_t base_addr_0[4] = {0x4E, 0x4F, 0x44, 0x45}; // "NODE"
     uint8_t base_addr_1[4] = {0xC2, 0xC2, 0xC2, 0xC2};
-    uint8_t addr_prefix[8] = {0xE7, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8};
+    uint8_t addr_prefix[8] = {0x31, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8}; // 0x31 is ASCII 1 -> Full address is NODE1
 
     struct esb_config config = ESB_DEFAULT_CONFIG;
 
-    config.protocol = ESB_PROTOCOL_ESB_DPL;
+    config.protocol = ESB_PROTOCOL_ESB;
     config.retransmit_delay = 600;
-    config.bitrate = ESB_BITRATE_2MBPS;
+    config.bitrate = ESB_BITRATE_1MBPS;
     config.event_handler = event_handler;
     config.mode = ESB_MODE_PTX;
-    config.selective_auto_ack = true;
-
+    config.payload_length = 4;
+    config.selective_auto_ack = false;
+    esb_set_rf_channel(40);
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING))
     {
         config.use_fast_ramp_up = true;
