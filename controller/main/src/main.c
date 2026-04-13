@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
 #include "motor_driver.h"
 #include "include/nrf24.h"
+
+static const char *TAG = "MAIN";
 
 void task_core0(void *pvParameters)
 { /*
