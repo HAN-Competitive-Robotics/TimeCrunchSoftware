@@ -6,9 +6,9 @@ common:
     type: multi_line
     ordered: true
     regex:
-      - "Enhanced ShockBurst ptx sample"
-      - "Initialization complete"
-      - "Sending test packet"
+      - 'Enhanced ShockBurst ptx sample'
+      - 'Initialization complete'
+      - 'Sending test packet'
   timeout: 15
 
 tests:
