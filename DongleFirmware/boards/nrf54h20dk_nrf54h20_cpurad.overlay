@@ -5,6 +5,10 @@
  */
 
  / {
+	chosen {
+		zephyr,console = &cdc_acm_uart0;
+	};
+
 	leds {
 		compatible = "gpio-leds";
 
@@ -61,4 +65,11 @@
 	status = "okay";
 	source-channels = < 0 1 2 3 4 5 >;
 	sink-channels = < 6 7 8 9 10 11 >;
+};
+
+&zephyr_udc0 {
+	status = "okay";
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
 };

@@ -1,0 +1,6 @@
+{
+    // Copy local/vscode-settings.json to .vscode/settings.json and update paths for your machine.
+    // See local/ncs.env.example for how to find your toolchain hash and SDK version.
+    "nrf-connect.buildArguments": "--sysbuild",
+    "nrf-connect.defaultBoard": "nrf52840dongle/nrf52840"
+}
