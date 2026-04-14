@@ -1,55 +1,63 @@
 #include "encoder_driver.h"
 
-#include "driver/gpio.h"
+#include "driver/pulse_cnt.h"
 #include "esp_timer.h"
-#include "freertos/FreeRTOS.h"
 
-#define ENCODER_HOLES       20
-#define SAMPLE_INTERVAL_MS  100
+#define ENCODER_HOLES 20
+#define SAMPLE_INTERVAL_MS 100
+#define GLITCH_FILTER_NS 1000
 
 // RPM = count * (60 / sample_interval_s) / holes
-//     = count * (60 / 0.1) / 20 = count * 30
-#define COUNTS_TO_RPM  (60.0f / (SAMPLE_INTERVAL_MS / 1000.0f) / ENCODER_HOLES)
+#define COUNTS_TO_RPM (60.0f / (SAMPLE_INTERVAL_MS / 1000.0f) / ENCODER_HOLES)
 
-static volatile uint32_t s_pulse_count = 0;
-static float             s_rpm         = 0.0f;
-static portMUX_TYPE      s_mux         = portMUX_INITIALIZER_UNLOCKED;
-
-static void IRAM_ATTR encoder_isr(void *arg)
-{
-    portENTER_CRITICAL_ISR(&s_mux);
-    s_pulse_count++;
-    portEXIT_CRITICAL_ISR(&s_mux);
-}
+static pcnt_unit_handle_t s_unit = NULL;
+static volatile float s_rpm = 0.0f;
 
 static void rpm_timer_cb(void *arg)
 {
-    portENTER_CRITICAL(&s_mux);
-    uint32_t count = s_pulse_count;
-    s_pulse_count  = 0;
-    portEXIT_CRITICAL(&s_mux);
+    int count = 0;
+    pcnt_unit_get_count(s_unit, &count);
+    pcnt_unit_clear_count(s_unit);
 
+    if (count < 0) count = 0;
     s_rpm = (float)count * COUNTS_TO_RPM;
 }
 
 void encoder_driver_init(void)
 {
-    gpio_config_t cfg = {
-        .pin_bit_mask = 1ULL << ENCODER_GPIO,
-        .mode         = GPIO_MODE_INPUT,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_POSEDGE,
+    pcnt_unit_config_t unit_cfg = {
+        .high_limit = INT16_MAX,
+        .low_limit = INT16_MIN,
     };
-    gpio_config(&cfg);
+    pcnt_new_unit(&unit_cfg, &s_unit);
 
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(ENCODER_GPIO, encoder_isr, NULL);
+    pcnt_glitch_filter_config_t filter_cfg = {
+        .max_glitch_ns = GLITCH_FILTER_NS,
+    };
+    pcnt_unit_set_glitch_filter(s_unit, &filter_cfg);
+
+    pcnt_chan_config_t chan_cfg = {
+        .edge_gpio_num = ENCODER_GPIO,
+        .level_gpio_num = -1,
+    };
+    pcnt_channel_handle_t chan = NULL;
+    pcnt_new_channel(s_unit, &chan_cfg, &chan);
+
+    pcnt_channel_set_edge_action(chan,
+        PCNT_CHANNEL_EDGE_ACTION_INCREASE,
+        PCNT_CHANNEL_EDGE_ACTION_HOLD);
+    pcnt_channel_set_level_action(chan,
+        PCNT_CHANNEL_LEVEL_ACTION_KEEP,
+        PCNT_CHANNEL_LEVEL_ACTION_KEEP);
+
+    pcnt_unit_enable(s_unit);
+    pcnt_unit_clear_count(s_unit);
+    pcnt_unit_start(s_unit);
 
     esp_timer_handle_t timer;
     esp_timer_create_args_t timer_args = {
         .callback = rpm_timer_cb,
-        .name     = "encoder_rpm",
+        .name = "encoder_rpm",
     };
     esp_timer_create(&timer_args, &timer);
     esp_timer_start_periodic(timer, SAMPLE_INTERVAL_MS * 1000);

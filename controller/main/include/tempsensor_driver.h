@@ -3,14 +3,15 @@
 #include <stdint.h>
 
 // I2C bus 0 pins — left and right wheel sensors (addresses 0x76 and 0x77)
-#define TEMP_I2C0_SDA  22
-#define TEMP_I2C0_SCL  23
+#define TEMP_I2C0_SDA 22
+#define TEMP_I2C0_SCL 33
 
 // I2C bus 1 pins — weapon sensor (address 0x76)
-#define TEMP_I2C1_SDA  25
-#define TEMP_I2C1_SCL  26
+#define TEMP_I2C1_SDA 25
+#define TEMP_I2C1_SCL 26
 
-typedef enum {
+typedef enum
+{
     TEMP_LEFT_WHEEL,
     TEMP_RIGHT_WHEEL,
     TEMP_WEAPON,

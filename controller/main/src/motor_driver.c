@@ -7,8 +7,8 @@
 #define MCPWM_RESOLUTION_HZ  1000000   // 1 MHz -> 1 tick = 1 us
 #define MCPWM_PERIOD_TICKS   20000     // 20 ms period -> 50 Hz
 
-#define PWM_TICKS_MIN  ((uint32_t)(0.10f * MCPWM_PERIOD_TICKS))  // 2000 us (throttle -100)
-#define PWM_TICKS_MAX  ((uint32_t)(0.20f * MCPWM_PERIOD_TICKS))  // 4000 us (throttle +100)
+#define PWM_TICKS_MIN  ((uint32_t)(0.05f * MCPWM_PERIOD_TICKS))  // 1000 us (throttle -100)
+#define PWM_TICKS_MAX  ((uint32_t)(0.10f * MCPWM_PERIOD_TICKS))  // 2000 us (throttle +100)
 
 static mcpwm_cmpr_handle_t s_comparators[MOTOR_COUNT];
 

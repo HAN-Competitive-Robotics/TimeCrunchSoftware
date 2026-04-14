@@ -1,4 +1,4 @@
 {
-  "idf.currentSetup": "C:/Espressif/frameworks/esp-idf-v5.5.3/",
-  "idf.flashType": "UART"
+  "idf.currentSetup": "/Users/yalukaiwo/.espressif/v6.0/esp-idf",
+  "idf.flashType": "JTAG"
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 // GPIO pin for the weapon encoder optical sensor
-#define ENCODER_GPIO   4
+#define ENCODER_GPIO   15
 
 // Initialize the encoder GPIO interrupt and RPM sampling timer.
 // Must be called before encoder_get_rpm.
