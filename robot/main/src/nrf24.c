@@ -10,6 +10,7 @@
 static const char *TAG = "NRF24";
 
 spi_device_handle_t nrf24_spi = NULL;
+SemaphoreHandle_t nrf24_irq_sem = NULL;
 
 void nrf24_ce_high(void)
 {
@@ -126,6 +127,40 @@ esp_err_t nrf24_init_spi(void)
         ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &nrf24_spi));
     }
 
+    return ESP_OK;
+}
+
+static void IRAM_ATTR nrf24_irq_handler(void *arg)
+{
+    (void)arg;
+    BaseType_t hptw = pdFALSE;
+    if (nrf24_irq_sem != NULL) {
+        xSemaphoreGiveFromISR(nrf24_irq_sem, &hptw);
+    }
+    if (hptw == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+esp_err_t nrf24_init_irq(void)
+{
+    nrf24_irq_sem = xSemaphoreCreateBinary();
+    if (nrf24_irq_sem == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = gpio_install_isr_service(0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+
+    ESP_ERROR_CHECK(gpio_set_intr_type(NRF24_PIN_IRQ, GPIO_INTR_NEGEDGE));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(NRF24_PIN_IRQ, nrf24_irq_handler, NULL));
+
+    /* Clear any pending IRQ from the nRF24 itself */
+    ESP_ERROR_CHECK(nrf24_clear_irqs());
+
+    ESP_LOGI(TAG, "IRQ init OK on GPIO %d", NRF24_PIN_IRQ);
     return ESP_OK;
 }
 

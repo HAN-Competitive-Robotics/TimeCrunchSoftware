@@ -8,6 +8,8 @@
 #include "esp_err.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -116,6 +118,7 @@ extern "C"
 // Public state
 // =========================
 extern spi_device_handle_t nrf24_spi;
+extern SemaphoreHandle_t nrf24_irq_sem;
 
 // =========================
 // Init
@@ -123,6 +126,7 @@ extern spi_device_handle_t nrf24_spi;
 esp_err_t nrf24_init(void);
 esp_err_t nrf24_init_spi(void);
 esp_err_t nrf24_init_gpio(void);
+esp_err_t nrf24_init_irq(void);
 
 // =========================
 // Low-level helpers
