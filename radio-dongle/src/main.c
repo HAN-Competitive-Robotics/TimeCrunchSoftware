@@ -100,7 +100,7 @@ static void usb_rx_thread_fn(void *a, void *b, void *c)
 		}
 
 		/* Nothing received: yield CPU */
-		k_sleep(K_MSEC(2));
+		k_sleep(K_MSEC(5));
 	}
 }
 
