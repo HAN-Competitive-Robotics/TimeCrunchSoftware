@@ -77,7 +77,7 @@ Receives on the same ESB parameters as the dongle:
 ```
 [0] motor_left   (0-255, 127 = center)
 [1] motor_right  (0-255, 127 = center)
-[2] weapon       (0 = off, 255 = on)
+[2] weapon       (0 = off, 1-127 = idle, 128-255 = attack)
 [3] failsafe     (0 = normal, 255 = emergency stop)
 ```
 

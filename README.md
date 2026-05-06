@@ -125,7 +125,7 @@ Each value is a raw byte (`0–255`). Center for motors is `127`.
 |------|---------|-------|
 | 0 | Left motor throttle | 0–255 (127 = stop) |
 | 1 | Right motor throttle | 0–255 (127 = stop) |
-| 2 | Weapon enable | 0 = off, 255 = on |
+| 2 | Weapon throttle | 0 = off, 1–127 = idle, 128–255 = attack |
 | 3 | Failsafe trigger | 0 = normal, 255 = stop all |
 
 ---
