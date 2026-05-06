@@ -16,11 +16,14 @@ static const char *TAG = "MAIN";
  * -------------------------------------------------------------------------- */
 typedef struct {
     uint8_t weapon_throttle;
-    bool failsafe_active;
-    bool packet_received;
+    bool    failsafe_active;
+    bool    packet_received;
 } robot_state_t;
 
-static QueueHandle_t state_queue;
+static QueueHandle_t  state_queue;
+static TaskHandle_t   h_core0 = NULL;
+static TaskHandle_t   h_core1 = NULL;
+static TaskHandle_t   h_temp  = NULL;
 
 static int map_byte_to_throttle(uint8_t b)
 {
@@ -29,13 +32,21 @@ static int map_byte_to_throttle(uint8_t b)
 
 /* --------------------------------------------------------------------------
  * Core 0 — Radio receive, drive motors, failsafe
+ *
+ * Uses a 50 ms semaphore poll (not 500 ms) so the timeout check runs at
+ * least 10× per second. Worst-case failsafe latency is now 550 ms max
+ * (one 50 ms window past the 500 ms threshold) rather than 1000 ms.
+ *
+ * weapon_controller_reset() is intentionally NOT called here.
+ * task_core1 owns the weapon controller state exclusively — it resets
+ * when it sees failsafe_active or !packet_received in the queue.
  * -------------------------------------------------------------------------- */
 void task_core0(void *pvParameters)
 {
     const uint8_t address[NRF24_ADDR_LEN] = {'1', 'N', 'O', 'D', 'E'};
-    uint8_t rx_buf[NRF24_MAX_PAYLOAD_LEN] = {0};
-    TickType_t last_packet_tick = 0;
-    bool have_packet = false;
+    uint8_t       rx_buf[NRF24_MAX_PAYLOAD_LEN] = {0};
+    TickType_t    last_packet_tick = 0;
+    bool          have_packet = false;
     robot_state_t state = {0};
 
     ESP_LOGI(TAG, "Initializing motor driver...");
@@ -56,15 +67,15 @@ void task_core0(void *pvParameters)
     ESP_ERROR_CHECK(nrf24_init_irq());
 
     uint8_t status = nrf24_get_status();
-    uint8_t rf_ch = nrf24_read_reg(NRF_REG_RF_CH);
+    uint8_t rf_ch  = nrf24_read_reg(NRF_REG_RF_CH);
     ESP_LOGI(TAG, "STATUS = 0x%02X", status);
     ESP_LOGI(TAG, "RF_CH = %u (0x%02X)", rf_ch, rf_ch);
-    ESP_LOGI(TAG, "Mode: RECEIVER (IRQ-driven)");
+    ESP_LOGI(TAG, "Mode: RECEIVER (IRQ-driven, 50 ms poll)");
 
     while (1) {
-        /* Wait for nRF24 IRQ (packet received) or 500 ms timeout for failsafe */
-        if (xSemaphoreTake(nrf24_irq_sem, pdMS_TO_TICKS(500)) == pdTRUE) {
-            /* Packet(s) arrived — drain the entire FIFO */
+        /* Wait for nRF24 IRQ or 50 ms — gives failsafe check 20 Hz resolution */
+        if (xSemaphoreTake(nrf24_irq_sem, pdMS_TO_TICKS(50)) == pdTRUE) {
+            /* Drain entire FIFO on each wake */
             while (nrf24_data_ready()) {
                 if (nrf24_receive_packet(rx_buf, 4) == ESP_OK) {
                     last_packet_tick = xTaskGetTickCount();
@@ -79,17 +90,17 @@ void task_core0(void *pvParameters)
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
                     if (failsafe_raw > 127) {
-                        state.weapon_throttle   = 0;
-                        state.failsafe_active   = true;
+                        state.weapon_throttle = 0;
+                        state.failsafe_active = true;
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
-                        weapon_controller_reset();
+                        /* weapon_controller_reset() belongs to task_core1 */
                     } else {
                         int left  = map_byte_to_throttle(left_raw);
                         int right = map_byte_to_throttle(right_raw);
 
-                        state.weapon_throttle   = weapon_raw;
-                        state.failsafe_active   = false;
+                        state.weapon_throttle = weapon_raw;
+                        state.failsafe_active = false;
 
                         motor_set_throttle(MOTOR_LEFT_WHEEL, left);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, right);
@@ -101,16 +112,17 @@ void task_core0(void *pvParameters)
             }
         }
 
-        /* Failsafe timeout: stop motors if no packet for 500 ms */
-        if (have_packet && (xTaskGetTickCount() - last_packet_tick) > pdMS_TO_TICKS(500)) {
+        /* Failsafe timeout: >= 500 ms since last good packet.
+         * Checked on every 50 ms poll iteration so it fires promptly. */
+        if (have_packet &&
+            (xTaskGetTickCount() - last_packet_tick) >= pdMS_TO_TICKS(500)) {
             ESP_LOGW(TAG, "Packet timeout — stopping motors");
             motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
             motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
-            weapon_controller_reset();
 
-            state.weapon_throttle   = 0;
-            state.failsafe_active   = true;
-            state.packet_received   = false;
+            state.weapon_throttle = 0;
+            state.failsafe_active = true;
+            state.packet_received = false;
             xQueueOverwrite(state_queue, &state);
             have_packet = false;
         }
@@ -118,15 +130,20 @@ void task_core0(void *pvParameters)
 }
 
 /* --------------------------------------------------------------------------
- * Core 1 — Weapon PI controller + temperature safety (100 Hz)
+ * Core 1 — Weapon PI controller (100 Hz, drift-free)
+ *
+ * Uses vTaskDelayUntil for drift-compensated 10 ms periods.
+ * Exclusively owns weapon_controller state — no other task touches it.
+ * Temperature safety runs in task_temp; this task never blocks on I2C.
  * -------------------------------------------------------------------------- */
 void task_core1(void *pvParameters)
 {
     robot_state_t state = {0};
-    uint32_t tick_count = 0;
+    TickType_t    wake_time = xTaskGetTickCount();
 
     while (1) {
-        /* Pull latest state from Core 0 (non-blocking) */
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(10)); /* drift-free 100 Hz */
+
         robot_state_t new_state;
         if (xQueueReceive(state_queue, &new_state, 0) == pdTRUE) {
             state = new_state;
@@ -143,14 +160,31 @@ void task_core1(void *pvParameters)
             weapon_controller_set_target_rpm(WEAPON_IDLE_RPM);
             weapon_controller_update();
         }
+    }
+}
 
-        /* Temperature safety check at 1 Hz */
-        if (++tick_count >= 100) {
-            tick_count = 0;
-            motor_safety_check();
-        }
+/* --------------------------------------------------------------------------
+ * Core 1 — Thermal safety (1 Hz)
+ *
+ * Dedicated low-priority task so blocking I2C reads (up to 30 ms for 3
+ * sensors) never stall the weapon PI loop in task_core1.
+ * motor_safety_check() latches per-motor thermal cutoff flags that
+ * motor_set_throttle() enforces atomically.
+ * -------------------------------------------------------------------------- */
+void task_temp(void *pvParameters)
+{
+    /* Stagger startup so all three tasks don't hit I2C simultaneously */
+    vTaskDelay(pdMS_TO_TICKS(500));
 
-        vTaskDelay(pdMS_TO_TICKS(10)); /* 100 Hz loop */
+    while (1) {
+        motor_safety_check();
+
+        ESP_LOGD(TAG, "Core0 stack HWM: %u  Core1: %u  Temp: %u",
+                 h_core0 ? uxTaskGetStackHighWaterMark(h_core0) : 0,
+                 h_core1 ? uxTaskGetStackHighWaterMark(h_core1) : 0,
+                 uxTaskGetStackHighWaterMark(NULL));
+
+        vTaskDelay(pdMS_TO_TICKS(1000)); /* 1 Hz */
     }
 }
 
@@ -165,11 +199,9 @@ void app_main(void)
         return;
     }
 
-    xTaskCreatePinnedToCore(
-        task_core0, "task_core0", 4096, NULL, 3, NULL, 0
-    );
-
-    xTaskCreatePinnedToCore(
-        task_core1, "task_core1", 4096, NULL, 2, NULL, 1
-    );
+    /* Stack sizes: core0 does heavy init (SPI, I2C, MCPWM, PCNT drivers).
+     * 6144 words gives headroom; verify uxTaskGetStackHighWaterMark in logs. */
+    xTaskCreatePinnedToCore(task_core0, "task_core0", 6144, NULL, 3, &h_core0, 0);
+    xTaskCreatePinnedToCore(task_core1, "task_core1", 4096, NULL, 2, &h_core1, 1);
+    xTaskCreatePinnedToCore(task_temp,  "task_temp",  4096, NULL, 1, &h_temp,  1);
 }

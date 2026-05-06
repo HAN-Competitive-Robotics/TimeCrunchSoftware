@@ -46,18 +46,7 @@ int usb_cdc_read(uint8_t *buf, size_t max_len)
         return 0;
     }
 
-    int total = 0;
-    while (total < (int)max_len)
-    {
-        uint8_t c;
-        int r = uart_fifo_read(cdc_dev, &c, 1);
-        if (r <= 0)
-        {
-            break;
-        }
-        buf[total++] = c;
-    }
-    return total;
+    return uart_fifo_read(cdc_dev, buf, (int)max_len);
 }
 //USB write
 int usb_cdc_write(const uint8_t *buf, size_t len)
@@ -67,6 +56,5 @@ int usb_cdc_write(const uint8_t *buf, size_t len)
         return 0;
     }
 
-    int sent = uart_fifo_fill(cdc_dev, buf, len);
-    return sent;
+    return uart_fifo_fill(cdc_dev, buf, (int)len);
 }

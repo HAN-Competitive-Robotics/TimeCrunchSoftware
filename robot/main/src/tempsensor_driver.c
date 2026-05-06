@@ -16,7 +16,7 @@
 #define BMP280_REG_CTRL_MEAS 0xF4
 #define BMP280_REG_TEMP_MSB  0xFA
 
-#define BMP280_CHIP_ID  0x60
+#define BMP280_CHIP_ID  0x58  // BMP280=0x58, BME280=0x60 — verify against your hardware
 
 // ctrl_meas: osrs_t=x1 (001), osrs_p=skip (000), mode=normal (11) → 0x23
 #define BMP280_CTRL_VAL 0x23

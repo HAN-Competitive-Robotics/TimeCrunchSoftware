@@ -2,8 +2,11 @@
 #include "tempsensor_driver.h"
 #include "driver/mcpwm_prelude.h"
 #include <math.h>
+#include <stdatomic.h>
 #include "esp_log.h"
-#define MOTOR_TEMP_LIMIT_C  100.0f
+
+#define MOTOR_TEMP_LIMIT_C       100.0f
+#define MOTOR_TEMP_HYSTERESIS_C   10.0f  // re-enable after temp drops below (limit - hysteresis)
 
 static const char *TAG = "MOTOR";
 
@@ -16,14 +19,42 @@ static const char *TAG = "MOTOR";
 
 static mcpwm_cmpr_handle_t s_comparators[MOTOR_COUNT];
 
+// Persistent thermal cutoff flags — latched on overtemp, cleared with hysteresis.
+// Written from task_temp (Core 1), read from task_core0 and task_core1.
+// _Atomic bool gives sequentially consistent loads/stores across both cores.
+static _Atomic bool s_thermal_cutoff[MOTOR_COUNT];
+
 static const int motor_pins[MOTOR_COUNT] = {
     [MOTOR_RIGHT_WHEEL] = MOTOR_PIN_RIGHT_WHEEL,
     [MOTOR_LEFT_WHEEL]  = MOTOR_PIN_LEFT_WHEEL,
     [MOTOR_WEAPON]      = MOTOR_PIN_WEAPON,
 };
 
+// Maps a sensor index to its motor index. Keeps motor_safety_check correct
+// even if enum ordering ever changes.
+static const motor_t sensor_to_motor[TEMP_COUNT] = {
+    [TEMP_LEFT_WHEEL]  = MOTOR_LEFT_WHEEL,
+    [TEMP_RIGHT_WHEEL] = MOTOR_RIGHT_WHEEL,
+    [TEMP_WEAPON]      = MOTOR_WEAPON,
+};
+
+// Applies PWM ticks directly without consulting the thermal gate.
+// Only call from motor_safety_check to enforce a hard-stop under cutoff.
+static void apply_throttle_direct(motor_t motor, int throttle)
+{
+    if (throttle < -100) throttle = -100;
+    if (throttle >  100) throttle =  100;
+    uint32_t ticks = PWM_TICKS_MIN +
+        (uint32_t)((throttle + 100) * (PWM_TICKS_MAX - PWM_TICKS_MIN) / 200);
+    mcpwm_comparator_set_compare_value(s_comparators[motor], ticks);
+}
+
 void motor_driver_init(void)
 {
+    for (int i = 0; i < MOTOR_COUNT; i++) {
+        atomic_store(&s_thermal_cutoff[i], false);
+    }
+
     mcpwm_timer_handle_t timer;
     mcpwm_timer_config_t timer_config = {
         .group_id      = MCPWM_GROUP,
@@ -54,7 +85,6 @@ void motor_driver_init(void)
         };
         ESP_ERROR_CHECK(mcpwm_new_generator(oper, &gen_config, &gen));
 
-        // Set high at start of period, set low on comparator match
         ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(gen,
             MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP,
                                          MCPWM_TIMER_EVENT_EMPTY,
@@ -72,21 +102,36 @@ void motor_driver_init(void)
 
 void motor_safety_check(void)
 {
-    // motor_t and temp_sensor_t share the same indices intentionally
-    for (int i = 0; i < MOTOR_COUNT; i++) {
+    for (int i = 0; i < TEMP_COUNT; i++) {
+        motor_t m = sensor_to_motor[i];
         float temp = temp_get_temperature((temp_sensor_t)i);
+
         if (isnan(temp) || temp >= MOTOR_TEMP_LIMIT_C) {
-            motor_set_throttle((motor_t)i, 0);
+            if (!atomic_load(&s_thermal_cutoff[m])) {
+                ESP_LOGW(TAG, "Thermal cutoff latched: motor %d (%.1f °C)", m, temp);
+            }
+            atomic_store(&s_thermal_cutoff[m], true);
+        } else if (temp < MOTOR_TEMP_LIMIT_C - MOTOR_TEMP_HYSTERESIS_C) {
+            if (atomic_load(&s_thermal_cutoff[m])) {
+                ESP_LOGI(TAG, "Thermal cutoff cleared: motor %d (%.1f °C)", m, temp);
+            }
+            atomic_store(&s_thermal_cutoff[m], false);
+        }
+
+        // Enforce zero throttle directly — bypass the gate in motor_set_throttle
+        // so task_core0 cannot override us between now and the next safety check.
+        if (atomic_load(&s_thermal_cutoff[m])) {
+            apply_throttle_direct(m, 0);
         }
     }
 }
 
 void motor_set_throttle(motor_t motor, int throttle)
 {
-    if (throttle < -100) throttle = -100;
-    if (throttle >  100) throttle = 100;
-
-    // Map [-100, 100] -> [PWM_TICKS_MIN, PWM_TICKS_MAX]
-    uint32_t ticks = PWM_TICKS_MIN + (uint32_t)((throttle + 100) * (PWM_TICKS_MAX - PWM_TICKS_MIN) / 200);
-    mcpwm_comparator_set_compare_value(s_comparators[motor], ticks);
+    // Hard gate: reject any command while thermal cutoff is active.
+    // Written by task_temp, read here from task_core0 and task_core1.
+    if (atomic_load(&s_thermal_cutoff[motor])) {
+        return;
+    }
+    apply_throttle_direct(motor, throttle);
 }

@@ -66,6 +66,15 @@
       "keyboard": "f",
       "off_value": 0,
       "on_value": 255
+    },
+    "drive_invert": {
+      "type": "button",
+      "gamepad": {
+        "button": 4
+      },
+      "keyboard": "i",
+      "off_value": 0,
+      "on_value": 255
     }
   },
   "ui": {

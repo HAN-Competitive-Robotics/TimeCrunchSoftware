@@ -314,7 +314,7 @@ class GUI:
     def add_log(self, msg):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-    def draw(self, link, mapper, values, runtime_ms):
+    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False):
         self.screen.fill(self._c("bg"))
 
         # Header
@@ -371,6 +371,10 @@ class GUI:
         f_txt = "FAILSAFE ACTIVE" if failsafe_on else "NORMAL"
         self._txt(f_txt, "text", (440, 168))
 
+        inv_color = "warning" if drive_inverted else "panel"
+        self._rect(inv_color, (600, 100, 160, 40))
+        self._txt("DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL", "text", (610, 108))
+
         # Stats
         hz = link.packet_count / (runtime_ms / 1000.0) if runtime_ms > 0 else 0
         self._txt(
@@ -393,10 +397,10 @@ class GUI:
         self._txt("CONTROLS", "accent", (20, 390))
         self._txt("Gamepad:  Left stick Y = Left motor    Right stick Y = Right motor", "text", (20, 412), small=True)
         self._txt("          RB = Weapon (idle)           RT = Rev up (attack)", "text", (20, 428), small=True)
-        self._txt("          B = Failsafe", "text", (20, 444), small=True)
+        self._txt("          B = Failsafe                 LB = Toggle drive invert", "text", (20, 444), small=True)
         self._txt("Keyboard: W/S = Left motor    UP/DOWN = Right motor", "text", (20, 460), small=True)
         self._txt("          SPACE = Weapon (idle)   LSHIFT = Rev up (attack)", "text", (20, 476), small=True)
-        self._txt("          F = Failsafe    ESC = Exit", "text", (20, 492), small=True)
+        self._txt("          F = Failsafe    I = Toggle drive invert    ESC = Exit", "text", (20, 492), small=True)
 
         pygame.display.flip()
 
@@ -502,6 +506,8 @@ def main():
     running = True
     start_time = pygame.time.get_ticks()
     last_send = 0
+    drive_inverted = False
+    prev_invert_raw = False
 
     while running:
         now = pygame.time.get_ticks()
@@ -525,6 +531,22 @@ def main():
                 values[name] = mapper.read_axis(name, keys)
             else:
                 values[name] = mapper.read_button(name, keys)
+
+        # Drive invert toggle — rising edge detection
+        invert_raw = values.get("drive_invert", 0) > 127
+        if invert_raw and not prev_invert_raw:
+            drive_inverted = not drive_inverted
+            gui.add_log(f"Drive invert {'ON' if drive_inverted else 'OFF'}")
+        prev_invert_raw = invert_raw
+
+        # Apply drive invert: swap sides and negate both around center
+        if drive_inverted:
+            center = cfg["packet"]["center"]
+            range_min, range_max = cfg["packet"]["range"]
+            left_raw = values.get("motor_left", center)
+            right_raw = values.get("motor_right", center)
+            values["motor_left"] = max(range_min, min(range_max, 2 * center - right_raw))
+            values["motor_right"] = max(range_min, min(range_max, 2 * center - left_raw))
 
         # Weapon logic: off=0, idle=64, attack=255
         weapon_base = values.get("weapon", 0)
@@ -558,7 +580,7 @@ def main():
 
         # Draw
         elapsed = now - start_time
-        gui.draw(link, mapper, values, elapsed)
+        gui.draw(link, mapper, values, elapsed, drive_inverted)
         gui.clock.tick(rate_hz)
 
     pygame.quit()
