@@ -9,7 +9,7 @@ static const char *TAG = "MAIN";
 
 void task_core0(void *pvParameters)
 { 
-     const uint8_t address[NRF24_ADDR_LEN] = {'N', 'O', 'D', 'E', '1'};
+     const uint8_t address[NRF24_ADDR_LEN] = {'1', 'N', 'O', 'D', 'E'};
      uint8_t rx_buf[NRF24_MAX_PAYLOAD_LEN] = {0};
      uint8_t status = 0;
      uint8_t rf_ch = 0;
@@ -26,12 +26,22 @@ void task_core0(void *pvParameters)
 
      ESP_LOGI(TAG, "Mode: RECEIVER");
 
+     uint32_t loop_count = 0;
      while (1)
      {
          if (nrf24_receive_packet(rx_buf, 4) == ESP_OK)
          {
              ESP_LOGI(TAG, "RX: %02X %02X %02X %02X",
                       rx_buf[0], rx_buf[1], rx_buf[2], rx_buf[3]);
+         }
+
+         /* Dump STATUS / FIFO every ~2 s so we can see if anything is arriving */
+         if (++loop_count >= 40)
+         {
+             loop_count = 0;
+             uint8_t status = nrf24_get_status();
+             uint8_t fifo   = nrf24_read_reg(NRF_REG_FIFO_STATUS);
+             ESP_LOGI(TAG, "STATUS=0x%02X FIFO=0x%02X", status, fifo);
          }
 
          vTaskDelay(pdMS_TO_TICKS(50));
@@ -48,21 +58,9 @@ void task_core0(void *pvParameters)
 
 void task_core1(void *pvParameters)
 {
-    motor_driver_init();
-
     while (1)
     {
-        printf("hello core 1\n");
-        motor_set_throttle(MOTOR_WEAPON, -100);
         vTaskDelay(pdMS_TO_TICKS(1000));
-        motor_set_throttle(MOTOR_WEAPON, -50);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        motor_set_throttle(MOTOR_WEAPON, 0);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        motor_set_throttle(MOTOR_WEAPON, 50);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        motor_set_throttle(MOTOR_WEAPON, 100);
-        printf("bye core 1 \n");
     }
 }
 

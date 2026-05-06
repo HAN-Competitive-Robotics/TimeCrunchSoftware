@@ -19,6 +19,7 @@ static void event_handler(struct esb_evt const *event)
         break;
 
     case ESB_EVENT_TX_FAILED:
+        esb_flush_tx();
         g_ready = true;
         LOG_DBG("ESB TX failed");
         break;
@@ -73,7 +74,6 @@ int esb_radio_init(void)
     config.mode = ESB_MODE_PTX;
     config.payload_length = 4;
     config.selective_auto_ack = false;
-    esb_set_rf_channel(40);
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING))
     {
         config.use_fast_ramp_up = true;
@@ -83,6 +83,13 @@ int esb_radio_init(void)
     if (err)
     {
         LOG_ERR("esb_init failed: %d", err);
+        return err;
+    }
+
+    err = esb_set_rf_channel(40);
+    if (err)
+    {
+        LOG_ERR("esb_set_rf_channel failed: %d", err);
         return err;
     }
 
@@ -110,6 +117,19 @@ int esb_radio_init(void)
     g_ready = true;
     LOG_INF("ESB radio initialized (PTX)");
     return 0;
+}
+
+struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uint8_t weaponEn, uint8_t failsafe)
+{
+    struct esb_payload pl = {0};
+    pl.pipe = 0;
+    pl.length = 4;
+    pl.noack = false;
+    pl.data[0] = motor1;
+    pl.data[1] = motor2;
+    pl.data[2] = weaponEn;
+    pl.data[3] = failsafe;
+    return pl;
 }
 
 bool esb_radio_ready(void)

@@ -244,45 +244,32 @@ int main(void)
 	
 	//LOG_INF("Init complete. Entering main loop.");
 
-	struct esb_payload pl = {0};
-	pl.pipe = 0;
-	pl.length = 4;
-	pl.noack = true;
-	pl.data[0] = 0xAA;
-	pl.data[1] = 0x55;
-	pl.data[2] = 0xAA;
-	pl.data[3] = 0x55;
-	
+	uint8_t counter = 0;
 
 	while (1)
 	{
-		/*
-		if (k_sem_take(&usb_rx_sem, K_MSEC(50)) == 0)
-		{
-			usb_parse_available();
-		}
-		*/
-
-		
 		if (esb_radio_ready())
 		{
+			struct esb_payload pl = {0};
+			pl.pipe = 0;
+			pl.length = 4;
+			pl.noack = false;
+			pl.data[0] = counter;
+			pl.data[1] = counter + 1;
+			pl.data[2] = counter + 2;
+			pl.data[3] = counter + 3;
+
 			led_debug_toggle();
-
-			
-			// esb_flush_tx();
-
 			err = esb_radio_send(&pl);
 			if (err)
 			{
-
 				LOG_ERR("esb send failed: %d", err);
 			}
 			else
 			{
-
+				counter++;
 			}
 		}
-		k_sleep(K_MSEC(1));
-		
+		k_sleep(K_MSEC(200));
 	}
 }

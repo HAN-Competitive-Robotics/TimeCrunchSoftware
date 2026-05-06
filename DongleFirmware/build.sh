@@ -31,7 +31,7 @@ export CMAKE_PREFIX_PATH="$NCS_TOOLCHAIN/opt/zephyr-sdk"
 unset VIRTUAL_ENV PYTHONHOME
 export NRFUTIL_HOME="$NCS_TOOLCHAIN/nrfutil/home"
 export DYLD_LIBRARY_PATH="/Applications/SEGGER/JLink_V934b${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
-export PATH="$NCS_TOOLCHAIN/opt/python@3.12/bin:$NCS_TOOLCHAIN/usr/bin:$NCS_TOOLCHAIN/nrfutil/home/bin:$PATH"
+export PATH="$NCS_TOOLCHAIN/bin:$NCS_TOOLCHAIN/opt/python@3.12/bin:$NCS_TOOLCHAIN/usr/bin:$NCS_TOOLCHAIN/nrfutil/home/bin:$PATH"
 
 if [[ ! -x "$WEST" ]]; then
     echo "Error: west not found at $WEST"
@@ -48,14 +48,14 @@ echo "Building for $BOARD..."
 "$WEST" build \
     --board "$BOARD" \
     --build-dir "$SCRIPT_DIR/$BUILD_DIR" \
-    --sysbuild \
+    --no-sysbuild \
     "$SCRIPT_DIR"
 
 if [[ "${1:-}" == "flash" ]]; then
     echo "Flashing via USB DFU (put dongle in bootloader mode first)..."
     NRFUTIL="$NCS_TOOLCHAIN/nrfutil/home/bin/nrfutil"
     LOCAL_NRFUTIL_HOME="$SCRIPT_DIR/local/nrfutil-home"
-    HEX="$SCRIPT_DIR/$BUILD_DIR/DongleFirmware/zephyr/zephyr.hex"
+    HEX="$SCRIPT_DIR/$BUILD_DIR/zephyr/zephyr.hex"
     ZIP="$SCRIPT_DIR/$BUILD_DIR/dfu_package.zip"
 
     # Install nrf5sdk-tools locally on first run
