@@ -156,6 +156,7 @@ esp_err_t nrf24_init_irq(void)
 
     ESP_ERROR_CHECK(gpio_set_intr_type(NRF24_PIN_IRQ, GPIO_INTR_NEGEDGE));
     ESP_ERROR_CHECK(gpio_isr_handler_add(NRF24_PIN_IRQ, nrf24_irq_handler, NULL));
+    ESP_ERROR_CHECK(gpio_intr_enable(NRF24_PIN_IRQ));
 
     /* Clear any pending IRQ from the nRF24 itself */
     ESP_ERROR_CHECK(nrf24_clear_irqs());
