@@ -497,7 +497,6 @@ def main():
     else:
         gui.add_log("No gamepad — keyboard only")
 
-    packet_order = cfg["packet"]["order"]
     rate_hz = cfg["serial"]["rate_hz"]
 
     running = True
