@@ -1,0 +1,74 @@
+{
+  "_comment": "Edit this file to change controls. Run 'python station.py --calibrate' to see your gamepad axis/button numbers.",
+  "serial": {
+    "port": "auto",
+    "baudrate": 115200,
+    "rate_hz": 50
+  },
+  "packet": {
+    "order": ["motor_left", "motor_right", "weapon", "failsafe"],
+    "range": [0, 255],
+    "center": 127
+  },
+  "inputs": {
+    "motor_left": {
+      "type": "axis",
+      "gamepad": {
+        "axis": 1,
+        "invert": true,
+        "deadzone": 0.15
+      },
+      "keyboard": {
+        "positive": "w",
+        "negative": "s",
+        "rate": 8
+      },
+      "expo": 0.0
+    },
+    "motor_right": {
+      "type": "axis",
+      "gamepad": {
+        "axis": 4,
+        "invert": true,
+        "deadzone": 0.15
+      },
+      "keyboard": {
+        "positive": "up",
+        "negative": "down",
+        "rate": 8
+      },
+      "expo": 0.0
+    },
+    "weapon": {
+      "type": "button",
+      "gamepad": {
+        "button": 5
+      },
+      "keyboard": "space",
+      "off_value": 0,
+      "on_value": 255
+    },
+    "failsafe": {
+      "type": "button",
+      "gamepad": {
+        "button": 1
+      },
+      "keyboard": "f",
+      "off_value": 0,
+      "on_value": 255
+    }
+  },
+  "ui": {
+    "width": 800,
+    "height": 480,
+    "theme": {
+      "bg": [30, 30, 35],
+      "panel": [45, 45, 55],
+      "text": [220, 220, 220],
+      "accent": [0, 200, 255],
+      "warning": [255, 180, 0],
+      "danger": [255, 60, 60],
+      "good": [60, 255, 120]
+    }
+  }
+}
