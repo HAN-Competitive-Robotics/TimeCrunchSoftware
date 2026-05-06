@@ -39,9 +39,17 @@ def find_west():
             if line.startswith("NCS_TOOLCHAIN="):
                 ncs_toolchain = line.split("=", 1)[1].strip().strip('"')
         if ncs_toolchain:
-            mac_west = Path(ncs_toolchain) / "Cellar" / "python@3.12" / "3.12.4" / "Frameworks" / "Python.framework" / "Versions" / "3.12" / "bin" / "west"
-            if mac_west.exists():
-                return str(mac_west)
+            import glob
+            # Search for west in common toolchain locations
+            search_patterns = [
+                f"{ncs_toolchain}/bin/west",
+                f"{ncs_toolchain}/usr/bin/west",
+                f"{ncs_toolchain}/Cellar/python@*/**/bin/west",
+            ]
+            for pattern in search_patterns:
+                matches = glob.glob(pattern)
+                if matches:
+                    return matches[0]
 
     error(
         "'west' not found in PATH.\n"
