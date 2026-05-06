@@ -106,7 +106,7 @@ python scripts/find-ports.py
 |-----------|-------|
 | **Protocol** | Enhanced ShockBurst (ESB) |
 | **Channel** | 40 |
-| **Bitrate** | 1 Mbps |
+| **Bitrate** | 2 Mbps |
 | **Payload** | 4 bytes |
 | **Address** | `1NODE` (5 bytes) |
 | **CRC** | 2 bytes |

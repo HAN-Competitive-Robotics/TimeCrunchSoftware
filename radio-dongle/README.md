@@ -67,7 +67,7 @@ The dongle echoes the first 4 bytes back as confirmation.
 |-----------|-------|
 | Mode | PTX (Primary Transmitter) |
 | Channel | 40 |
-| Bitrate | 1 Mbps |
+| Bitrate | 2 Mbps |
 | Address | `1NODE` |
 | Payload | 4 bytes |
 | CRC | 2 bytes |
