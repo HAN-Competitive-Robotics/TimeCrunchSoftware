@@ -1,27 +1,4 @@
 #!/usr/bin/env bash
-# Build, flash both devices, then open ESP32 serial monitor.
-# Usage: ./flash_test.sh [esp_port] [dongle_port]
-#   esp_port    default: /dev/cu.usbserial-0001
-#   dongle_port default: /dev/cu.usbmodem1301
-
-set -euo pipefail
-
+# Thin wrapper around flash-all.py for Unix users.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-ESP_PORT="${1:-/dev/cu.usbserial-0001}"
-IDF_PATH="$HOME/esp/esp-idf"
-
-echo "=== Flashing ESP32 receiver on $ESP_PORT ==="
-source "$IDF_PATH/export.sh"
-cd "$SCRIPT_DIR/robot"
-idf.py -p "$ESP_PORT" flash
-
-echo ""
-echo "=== Building + flashing nRF52840 dongle ==="
-cd "$SCRIPT_DIR/radio-dongle"
-bash build.sh flash
-
-echo ""
-echo "=== Opening ESP32 monitor (Ctrl+] to exit) ==="
-cd "$SCRIPT_DIR/robot"
-idf.py -p "$ESP_PORT" monitor
+exec python3 "$SCRIPT_DIR/flash-all.py" "$@"
