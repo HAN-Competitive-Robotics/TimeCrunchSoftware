@@ -127,32 +127,24 @@ class SerialLink:
 # ---------------------------------------------------------------------------
 # Input mapping
 # ---------------------------------------------------------------------------
-KEY_MAP = {
-    "w": pygame.K_w,
-    "a": pygame.K_a,
-    "s": pygame.K_s,
-    "d": pygame.K_d,
-    "up": pygame.K_UP,
-    "down": pygame.K_DOWN,
-    "left": pygame.K_LEFT,
-    "right": pygame.K_RIGHT,
-    "space": pygame.K_SPACE,
-    "escape": pygame.K_ESCAPE,
-    "return": pygame.K_RETURN,
-    "lshift": pygame.K_LSHIFT,
-    "rshift": pygame.K_RSHIFT,
-    "lctrl": pygame.K_LCTRL,
-    "rctrl": pygame.K_RCTRL,
-    "tab": pygame.K_TAB,
-    "q": pygame.K_q,
-    "e": pygame.K_e,
-    "r": pygame.K_r,
-    "f": pygame.K_f,
-    "1": pygame.K_1,
-    "2": pygame.K_2,
-    "3": pygame.K_3,
-    "4": pygame.K_4,
-}
+def _resolve_key(name):
+    """Resolve a key name like 'space' or 'lshift' to a pygame key constant."""
+    if not name:
+        return None
+    key = getattr(pygame, f"K_{name.upper()}", None)
+    if key is not None:
+        return key
+    # Fallback for a few common aliases not following the K_<name> pattern
+    aliases = {
+        "return": pygame.K_RETURN,
+        "enter": pygame.K_RETURN,
+        "escape": pygame.K_ESCAPE,
+        "up": pygame.K_UP,
+        "down": pygame.K_DOWN,
+        "left": pygame.K_LEFT,
+        "right": pygame.K_RIGHT,
+    }
+    return aliases.get(name.lower())
 
 
 class InputMapper:
@@ -227,8 +219,8 @@ class InputMapper:
         # Keyboard axis
         if "keyboard" in spec:
             kb = spec["keyboard"]
-            pos_key = KEY_MAP.get(kb["positive"])
-            neg_key = KEY_MAP.get(kb["negative"])
+            pos_key = _resolve_key(kb["positive"])
+            neg_key = _resolve_key(kb["negative"])
             rate = kb.get("rate", 8)
 
             current = self.keyboard_axis_state.get(name, center)
@@ -261,7 +253,7 @@ class InputMapper:
 
         # Keyboard button
         if "keyboard" in spec:
-            k = KEY_MAP.get(spec["keyboard"])
+            k = _resolve_key(spec["keyboard"])
             if k and keys[k]:
                 return on
 
