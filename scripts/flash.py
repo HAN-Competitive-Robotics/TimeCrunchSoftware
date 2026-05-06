@@ -2,13 +2,14 @@
 """Cross-platform flash script for battlebot devices.
 
 Interactive menu when run without arguments:
-    python scripts/flash-all.py
+    python scripts/flash.py
 
 Direct CLI usage:
-    python scripts/flash-all.py --both          # flash robot + dongle + monitor
-    python scripts/flash-all.py --robot         # flash ESP32 only + monitor
-    python scripts/flash-all.py --dongle        # flash nRF52840 dongle only
-    python scripts/flash-all.py --robot --no-monitor /dev/ttyUSB0
+    python scripts/flash.py --both          # flash robot + dongle + monitor
+    python scripts/flash.py --robot         # flash ESP32 only + monitor
+    python scripts/flash.py --dongle        # flash nRF52840 dongle only
+    python scripts/flash.py --build-robot   # build ESP32 only
+    python scripts/flash.py --robot --no-monitor /dev/ttyUSB0
 """
 
 import argparse
@@ -24,11 +25,11 @@ ROBOT_DIR = REPO_ROOT / "robot"
 
 
 def info(msg):
-    print(f"[flash-all] {msg}")
+    print(f"[flash] {msg}")
 
 
 def error(msg):
-    print(f"[flash-all] ERROR: {msg}", file=sys.stderr)
+    print(f"[flash] ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -144,8 +145,9 @@ def menu():
     print("2. Flash dongle (nRF52840)")
     print("3. Flash both + monitor")
     print("4. Find ports")
-    print("5. Build dongle only")
-    print("6. Exit")
+    print("5. Build battlebot only")
+    print("6. Build dongle only")
+    print("7. Exit")
     print("=" * 40)
     print()
 
@@ -181,14 +183,17 @@ def interactive():
             find_ports()
 
         elif choice == "5":
-            build_dongle_only()
+            build_robot_only()
 
         elif choice == "6":
+            build_dongle_only()
+
+        elif choice == "7":
             print("Bye.")
             sys.exit(0)
 
         else:
-            print("Invalid choice. Enter 1-6.")
+            print("Invalid choice. Enter 1-7.")
 
 
 def main():
@@ -199,15 +204,22 @@ def main():
     parser.add_argument("--both", action="store_true", help="Flash both devices (default)")
     parser.add_argument("--no-monitor", action="store_true", help="Skip opening monitor after flash")
     parser.add_argument("--find-ports", action="store_true", help="List detected serial ports")
+    parser.add_argument("--build-robot", action="store_true", help="Build ESP32 robot only")
     args = parser.parse_args()
 
     # If no CLI flags given, drop into interactive menu
-    if not any([args.robot, args.dongle, args.both, args.find_ports, args.port]):
+    if not any([args.robot, args.dongle, args.both, args.find_ports, args.build_robot, args.port]):
         interactive()
         return
 
     if args.find_ports:
         find_ports()
+        return
+
+    if args.build_robot:
+        info("Building ESP32 robot...")
+        robot_idf = ROBOT_DIR / "idf"
+        subprocess.run([str(robot_idf), "build"], cwd=ROBOT_DIR, check=True)
         return
 
     # Resolve port if needed

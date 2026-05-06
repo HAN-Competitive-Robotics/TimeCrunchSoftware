@@ -48,7 +48,7 @@ Flash both devices and open the robot monitor. Ports are auto-detected on all pl
 
 **Any OS:**
 ```bash
-python scripts/flash-all.py
+python scripts/flash.py
 ```
 
 ---
@@ -167,6 +167,6 @@ npx prettier --write .
 │   └── requirements.txt
 └── scripts/            # Cross-platform build & flash helpers
     ├── build-dongle.py
-    ├── flash-all.py
+    ├── flash.py
     └── find-ports.py
 ```
