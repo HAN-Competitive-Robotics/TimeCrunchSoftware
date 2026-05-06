@@ -46,17 +46,7 @@ One-way radio control system for a battlebot using Nordic ESB (Enhanced ShockBur
 
 Flash both devices and open the robot monitor. Ports are auto-detected on all platforms.
 
-**macOS / Linux:**
-```bash
-./scripts/flash-all.sh
-```
-
-**Windows (Command Prompt / PowerShell):**
-```cmd
-scripts\flash-all.bat
-```
-
-**Or run the Python script directly (any OS):**
+**Any OS:**
 ```bash
 python scripts/flash-all.py
 ```
@@ -68,14 +58,12 @@ python scripts/flash-all.py
 ### ESP32 receiver
 
 ```bash
-cd robot
-source ~/esp/esp-idf/export.sh
-idf.py -p $(python ../scripts/find-ports.py | grep FIRST_ESP32 | cut -d= -f2) flash monitor
+./robot/idf -p $(python scripts/find-ports.py | grep FIRST_ESP32 | cut -d= -f2) flash monitor
 ```
 
 If auto-detection fails, pass the port manually:
 ```bash
-idf.py -p /dev/cu.usbserial-0001 flash monitor
+./robot/idf -p /dev/cu.usbserial-0001 flash monitor
 ```
 
 ### nRF52840 dongle

@@ -28,11 +28,11 @@ python ../scripts/build-dongle.py flash --key-file private.pem
 python ../scripts/build-dongle.py clean
 ```
 
-Or use the shell wrapper from the repo root:
+Or run directly from the repo root:
 
 ```bash
-./scripts/build-dongle.sh        # build only
-./scripts/build-dongle.sh flash  # build + flash
+python scripts/build-dongle.py        # build only
+python scripts/build-dongle.py flash  # build + flash
 ```
 
 > **Note:** The dongle must be in bootloader mode to flash. Hold the reset button while plugging it in, or use `nrfutil` directly.
