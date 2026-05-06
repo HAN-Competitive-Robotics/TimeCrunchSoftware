@@ -59,6 +59,42 @@ def find_esp32_port():
     )
 
 
+def check_port_available(port):
+    """Check that the serial port isn't already open by another process."""
+    import serial
+
+    try:
+        s = serial.Serial(port, baudrate=115200, timeout=0.5)
+        s.close()
+        return True
+    except serial.SerialException as e:
+        err = str(e).lower()
+        if "busy" in err or "access" in err or "permission" in err:
+            info(f"Port {port} is already in use.")
+            # Try to identify the offending process on Unix
+            if platform.system() in ("Darwin", "Linux"):
+                try:
+                    result = subprocess.run(
+                        ["lsof", "+t", port],
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    if result.stdout:
+                        info(f"Process holding the port:\n{result.stdout.strip()}")
+                except Exception:
+                    pass
+            error(
+                f"Cannot open {port}.\n"
+                "Close any monitor/screen/minicom sessions first, then retry.\n"
+                f"  pkill -f monitor\n"
+                f"  python {Path(__file__).name}"
+            )
+        # Any other error (e.g. port doesn't exist) is not a busy-port issue;
+        # let esptool report it properly.
+        return True
+
+
 def flash_esp32(port):
     idf_path = Path.home() / "esp" / "esp-idf"
     if platform.system() == "Windows":
@@ -114,6 +150,8 @@ def main():
 
     port = args.port if args.port else find_esp32_port()
     info(f"Using ESP32 port: {port}")
+
+    check_port_available(port)
 
     flash_esp32(port)
     flash_dongle()
