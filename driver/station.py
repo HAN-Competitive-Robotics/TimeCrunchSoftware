@@ -351,11 +351,19 @@ class GUI:
 
         # Weapon / Failsafe indicators
         weapon_on = values.get("weapon", 0) > 127
+        weapon_rev = values.get("weapon_rev", 0) > 127
         failsafe_on = values.get("failsafe", 0) > 127
 
-        w_color = "danger" if weapon_on else "panel"
+        if weapon_rev:
+            w_color = "danger"
+            w_txt = "WEAPON ATTACK"
+        elif weapon_on:
+            w_color = "warning"
+            w_txt = "WEAPON IDLE"
+        else:
+            w_color = "panel"
+            w_txt = "WEAPON SAFE"
         self._rect(w_color, (420, 100, 160, 40))
-        w_txt = "WEAPON ARMED" if weapon_on else "WEAPON SAFE"
         self._txt(w_txt, "text", (440, 108))
 
         f_color = "danger" if failsafe_on else "panel"
