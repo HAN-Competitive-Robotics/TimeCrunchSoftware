@@ -40,22 +40,6 @@ static void event_handler(struct esb_evt const *event)
     }
 }
 
-struct esb_payload esb_radio_default_payload(void)
-{
-    struct esb_payload pl = {0};
-
-    pl.pipe = 0;
-    pl.length = 4;
-    pl.noack = true;
-
-    pl.data[0] = 0x01;
-    pl.data[1] = 0x00;
-    pl.data[2] = 0x03;
-    pl.data[3] = 0x04;
-
-    return pl;
-}
-
 int esb_radio_init(void)
 {
     int err;
