@@ -2,6 +2,7 @@
 
 #include "driver/pulse_cnt.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 
 #define ENCODER_HOLES 20
 #define SAMPLE_INTERVAL_MS 100
@@ -12,6 +13,7 @@
 
 static pcnt_unit_handle_t s_unit = NULL;
 static volatile float s_rpm = 0.0f;
+static const char *TAG = "ENCODER";
 
 static void rpm_timer_cb(void *arg)
 {
@@ -29,38 +31,39 @@ void encoder_driver_init(void)
         .high_limit = INT16_MAX,
         .low_limit = INT16_MIN,
     };
-    pcnt_new_unit(&unit_cfg, &s_unit);
+    ESP_ERROR_CHECK(pcnt_new_unit(&unit_cfg, &s_unit));
 
     pcnt_glitch_filter_config_t filter_cfg = {
         .max_glitch_ns = GLITCH_FILTER_NS,
     };
-    pcnt_unit_set_glitch_filter(s_unit, &filter_cfg);
+    ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(s_unit, &filter_cfg));
 
     pcnt_chan_config_t chan_cfg = {
         .edge_gpio_num = ENCODER_GPIO,
         .level_gpio_num = -1,
     };
     pcnt_channel_handle_t chan = NULL;
-    pcnt_new_channel(s_unit, &chan_cfg, &chan);
+    ESP_ERROR_CHECK(pcnt_new_channel(s_unit, &chan_cfg, &chan));
 
-    pcnt_channel_set_edge_action(chan,
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(chan,
         PCNT_CHANNEL_EDGE_ACTION_INCREASE,
-        PCNT_CHANNEL_EDGE_ACTION_HOLD);
-    pcnt_channel_set_level_action(chan,
+        PCNT_CHANNEL_EDGE_ACTION_HOLD));
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(chan,
         PCNT_CHANNEL_LEVEL_ACTION_KEEP,
-        PCNT_CHANNEL_LEVEL_ACTION_KEEP);
+        PCNT_CHANNEL_LEVEL_ACTION_KEEP));
 
-    pcnt_unit_enable(s_unit);
-    pcnt_unit_clear_count(s_unit);
-    pcnt_unit_start(s_unit);
+    ESP_ERROR_CHECK(pcnt_unit_enable(s_unit));
+    ESP_ERROR_CHECK(pcnt_unit_clear_count(s_unit));
+    ESP_ERROR_CHECK(pcnt_unit_start(s_unit));
 
     esp_timer_handle_t timer;
     esp_timer_create_args_t timer_args = {
         .callback = rpm_timer_cb,
         .name = "encoder_rpm",
     };
-    esp_timer_create(&timer_args, &timer);
-    esp_timer_start_periodic(timer, SAMPLE_INTERVAL_MS * 1000);
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(timer, SAMPLE_INTERVAL_MS * 1000));
+    ESP_LOGI(TAG, "Encoder init OK: GPIO %d, %d holes", ENCODER_GPIO, ENCODER_HOLES);
 }
 
 float encoder_get_rpm(void)

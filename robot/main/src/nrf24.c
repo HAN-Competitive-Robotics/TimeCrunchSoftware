@@ -463,7 +463,7 @@ esp_err_t nrf24_basic_config(const uint8_t *addr, uint8_t channel, uint8_t paylo
 
     ESP_ERROR_CHECK(nrf24_set_retries(0x02, 0x0F));
     ESP_ERROR_CHECK(nrf24_set_channel(channel));
-    ESP_ERROR_CHECK(nrf24_set_rf_setup(NRF_RF_SETUP_1MBPS));
+    ESP_ERROR_CHECK(nrf24_set_rf_setup(NRF_RF_SETUP_2MBPS));
 
     ESP_ERROR_CHECK(nrf24_set_rx_address_p0(addr, NRF24_ADDR_LEN));
     ESP_ERROR_CHECK(nrf24_set_tx_address(addr, NRF24_ADDR_LEN));

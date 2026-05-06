@@ -4,6 +4,7 @@
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
 
 #define I2C_FREQ_HZ     400000
 #define I2C_TIMEOUT_MS  10
@@ -51,6 +52,8 @@ static esp_err_t bmp280_write(sensor_cfg_t *s, uint8_t reg, uint8_t val)
                                       pdMS_TO_TICKS(I2C_TIMEOUT_MS));
 }
 
+static const char *TAG = "TEMP";
+
 static void init_i2c_bus(i2c_port_t port, int sda, int scl)
 {
     i2c_config_t cfg = {
@@ -61,8 +64,8 @@ static void init_i2c_bus(i2c_port_t port, int sda, int scl)
         .scl_pullup_en    = GPIO_PULLUP_ENABLE,
         .master.clk_speed = I2C_FREQ_HZ,
     };
-    i2c_param_config(port, &cfg);
-    i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0);
+    ESP_ERROR_CHECK(i2c_param_config(port, &cfg));
+    ESP_ERROR_CHECK(i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0));
 }
 
 static void init_sensor(sensor_cfg_t *s)
@@ -96,6 +99,7 @@ void tempsensor_driver_init(void)
     for (int i = 0; i < TEMP_COUNT; i++) {
         init_sensor(&s_sensors[i]);
     }
+    ESP_LOGI(TAG, "Temp sensors init OK");
 }
 
 float temp_get_temperature(temp_sensor_t sensor)

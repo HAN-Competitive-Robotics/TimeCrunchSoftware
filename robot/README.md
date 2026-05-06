@@ -4,12 +4,45 @@ ESP32 receiver that drives the battlebot over radio.
 
 ## Hardware
 
-- ESP32 DevKit
-- nRF24L01+ (SPI3: CLK=18, MISO=19, MOSI=23, CSN=5, CE=4, IRQ=27)
-- Motor drivers (pins defined in `motor_driver.h`)
-- Weapon controller
-- Temperature sensor
-- Quadrature encoders
+- **ESP32 DevKit**
+- **nRF24L01+** 2.4 GHz radio (SPI3)
+- **Motor drivers** — 3× RC-style ESCs (left wheel, right wheel, weapon)
+- **BMP280 temperature sensors** — 3× (one per motor)
+- **Optical encoder** — 20-hole wheel on weapon motor
+
+## Pinout
+
+### nRF24L01+ (SPI3)
+
+| Signal | GPIO |
+|--------|------|
+| CLK    | 18   |
+| MISO   | 19   |
+| MOSI   | 23   |
+| CSN    | 5    |
+| CE     | 4    |
+| IRQ    | 27   |
+
+### Motors (MCPWM, 50 Hz servo PWM)
+
+| Motor | GPIO |
+|-------|------|
+| Right wheel | 13 |
+| Left wheel  | 14 |
+| Weapon      | 21 |
+
+### I2C (BMP280 temperature sensors)
+
+| Bus | SDA | SCL | Devices |
+|-----|-----|-----|---------|
+| I2C_NUM_0 | 22 | 33 | Left wheel (0x76), Right wheel (0x77) |
+| I2C_NUM_1 | 25 | 26 | Weapon (0x76) |
+
+### Encoder
+
+| Signal | GPIO |
+|--------|------|
+| Optical sensor | 15 |
 
 ## Build & Flash
 
@@ -17,6 +50,13 @@ ESP32 receiver that drives the battlebot over radio.
 cd robot
 source ~/esp/esp-idf/export.sh
 idf.py -p /dev/cu.usbserial-0001 flash monitor
+```
+
+Or auto-detect the port:
+
+```bash
+source ~/esp/esp-idf/export.sh
+idf.py -p $(python ../scripts/find-ports.py | grep FIRST_ESP32 | cut -d= -f2) flash monitor
 ```
 
 ## Radio Config
@@ -30,12 +70,35 @@ Receives on the same ESB parameters as the dongle:
 | Bitrate | 1 Mbps |
 | Address | `1NODE` |
 | Payload | 4 bytes |
+| CRC | 2 bytes |
 
 ## Packet Format
 
 ```
-[0] motor1    (0-255)
-[1] motor2    (0-255)
-[2] weapon    (0-255)
-[3] failsafe  (0-255)
+[0] motor_left   (0-255, 127 = center)
+[1] motor_right  (0-255, 127 = center)
+[2] weapon       (0 = off, 255 = on)
+[3] failsafe     (0 = normal, 255 = emergency stop)
 ```
+
+## Safety Behaviors
+
+1. **Packet timeout (500 ms)** — If no valid packet is received for 500 ms, all motors are stopped.
+2. **Failsafe trigger** — When `failsafe > 127`, all motors stop immediately.
+3. **Thermal cutoff** — If any motor temperature exceeds 100 °C, or if a temperature sensor fails (returns NAN), that motor's throttle is set to 0.
+4. **Weapon PI control** — The weapon motor runs closed-loop to a target of 5000 RPM. Tune `WEAPON_KP` and `WEAPON_KI` in `main/include/weapon_controller.h` after a step-response test.
+
+## Tasks
+
+| Task | Core | Purpose |
+|------|------|---------|
+| `task_core0` | 0 | Radio receive, motor control, safety checks |
+| `task_core1` | 1 | Reserved for future high-rate work (telemetry, weapon PID, watchdog) |
+
+## Tuning the Weapon Controller
+
+1. Set `WEAPON_KP` and `WEAPON_KI` to `0.0f` in `main/include/weapon_controller.h`
+2. Flash and run with the weapon spinning open-loop
+3. Log `encoder_get_rpm()` values to determine system response
+4. Tune `WEAPON_KP` first for responsiveness, then add `WEAPON_KI` to eliminate steady-state error
+5. Re-flash and verify no oscillation

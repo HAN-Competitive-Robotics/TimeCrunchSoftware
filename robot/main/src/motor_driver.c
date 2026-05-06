@@ -1,7 +1,11 @@
 #include "motor_driver.h"
 #include "tempsensor_driver.h"
 #include "driver/mcpwm_prelude.h"
+#include <math.h>
+#include "esp_log.h"
 #define MOTOR_TEMP_LIMIT_C  100.0f
+
+static const char *TAG = "MOTOR";
 
 #define MCPWM_GROUP          0
 #define MCPWM_RESOLUTION_HZ  1000000   // 1 MHz -> 1 tick = 1 us
@@ -28,41 +32,42 @@ void motor_driver_init(void)
         .count_mode    = MCPWM_TIMER_COUNT_MODE_UP,
         .period_ticks  = MCPWM_PERIOD_TICKS,
     };
-    mcpwm_new_timer(&timer_config, &timer);
+    ESP_ERROR_CHECK(mcpwm_new_timer(&timer_config, &timer));
 
     for (int i = 0; i < MOTOR_COUNT; i++) {
         mcpwm_oper_handle_t oper;
         mcpwm_operator_config_t oper_config = {
             .group_id = MCPWM_GROUP,
         };
-        mcpwm_new_operator(&oper_config, &oper);
-        mcpwm_operator_connect_timer(oper, timer);
+        ESP_ERROR_CHECK(mcpwm_new_operator(&oper_config, &oper));
+        ESP_ERROR_CHECK(mcpwm_operator_connect_timer(oper, timer));
 
         mcpwm_comparator_config_t cmp_config = {
             .flags.update_cmp_on_tez = true,
         };
-        mcpwm_new_comparator(oper, &cmp_config, &s_comparators[i]);
-        mcpwm_comparator_set_compare_value(s_comparators[i], PWM_TICKS_MIN);
+        ESP_ERROR_CHECK(mcpwm_new_comparator(oper, &cmp_config, &s_comparators[i]));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(s_comparators[i], PWM_TICKS_MIN));
 
         mcpwm_gen_handle_t gen;
         mcpwm_generator_config_t gen_config = {
             .gen_gpio_num = motor_pins[i],
         };
-        mcpwm_new_generator(oper, &gen_config, &gen);
+        ESP_ERROR_CHECK(mcpwm_new_generator(oper, &gen_config, &gen));
 
         // Set high at start of period, set low on comparator match
-        mcpwm_generator_set_action_on_timer_event(gen,
+        ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(gen,
             MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP,
                                          MCPWM_TIMER_EVENT_EMPTY,
-                                         MCPWM_GEN_ACTION_HIGH));
-        mcpwm_generator_set_action_on_compare_event(gen,
+                                         MCPWM_GEN_ACTION_HIGH)));
+        ESP_ERROR_CHECK(mcpwm_generator_set_action_on_compare_event(gen,
             MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP,
                                             s_comparators[i],
-                                            MCPWM_GEN_ACTION_LOW));
+                                            MCPWM_GEN_ACTION_LOW)));
     }
 
-    mcpwm_timer_enable(timer);
-    mcpwm_timer_start_stop(timer, MCPWM_TIMER_START_NO_STOP);
+    ESP_ERROR_CHECK(mcpwm_timer_enable(timer));
+    ESP_ERROR_CHECK(mcpwm_timer_start_stop(timer, MCPWM_TIMER_START_NO_STOP));
+    ESP_LOGI(TAG, "MCPWM init OK: %d motors on group %d", MOTOR_COUNT, MCPWM_GROUP);
 }
 
 void motor_safety_check(void)
@@ -70,7 +75,7 @@ void motor_safety_check(void)
     // motor_t and temp_sensor_t share the same indices intentionally
     for (int i = 0; i < MOTOR_COUNT; i++) {
         float temp = temp_get_temperature((temp_sensor_t)i);
-        if (temp >= MOTOR_TEMP_LIMIT_C) {
+        if (isnan(temp) || temp >= MOTOR_TEMP_LIMIT_C) {
             motor_set_throttle((motor_t)i, 0);
         }
     }
