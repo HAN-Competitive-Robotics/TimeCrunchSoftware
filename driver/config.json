@@ -48,6 +48,16 @@
       "off_value": 0,
       "on_value": 255
     },
+    "weapon_rev": {
+      "type": "button",
+      "gamepad": {
+        "axis": 5,
+        "threshold": 0.5
+      },
+      "keyboard": "lshift",
+      "off_value": 0,
+      "on_value": 255
+    },
     "failsafe": {
       "type": "button",
       "gamepad": {

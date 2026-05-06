@@ -246,8 +246,15 @@ class InputMapper:
         # Gamepad button
         if self.joystick and "gamepad" in spec:
             try:
-                if self.joystick.get_button(spec["gamepad"]["button"]):
-                    return on
+                gp = spec["gamepad"]
+                if "button" in gp:
+                    if self.joystick.get_button(gp["button"]):
+                        return on
+                elif "axis" in gp:
+                    val = self.joystick.get_axis(gp["axis"])
+                    threshold = gp.get("threshold", 0.5)
+                    if val > threshold:
+                        return on
             except pygame.error:
                 self._detach()
 
@@ -510,8 +517,23 @@ def main():
             else:
                 values[name] = mapper.read_button(name, keys)
 
-        # Build packet
-        packet = bytes([values.get(k, 0) for k in packet_order]) + b"\n"
+        # Weapon logic: off=0, idle=64, attack=255
+        weapon_base = values.get("weapon", 0)
+        weapon_rev = values.get("weapon_rev", 0)
+
+        if weapon_base == 0:
+            weapon_byte = 0
+        elif weapon_rev > 127:
+            weapon_byte = 255
+        else:
+            weapon_byte = 64
+
+        packet = bytes([
+            values.get("motor_left", 127),
+            values.get("motor_right", 127),
+            weapon_byte,
+            values.get("failsafe", 0),
+        ]) + b"\n"
 
         # Send at configured rate
         if now - last_send >= 1000 / rate_hz:
