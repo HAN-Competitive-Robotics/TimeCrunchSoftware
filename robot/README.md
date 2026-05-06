@@ -67,7 +67,7 @@ Receives on the same ESB parameters as the dongle:
 |-----------|-------|
 | Mode | PRX (Primary Receiver) |
 | Channel | 40 |
-| Bitrate | 1 Mbps |
+| Bitrate | 2 Mbps |
 | Address | `1NODE` |
 | Payload | 4 bytes |
 | CRC | 2 bytes |
@@ -90,10 +90,16 @@ Receives on the same ESB parameters as the dongle:
 
 ## Tasks
 
-| Task | Core | Purpose |
-|------|------|---------|
-| `task_core0` | 0 | Radio receive, motor control, safety checks |
-| `task_core1` | 1 | Reserved for future high-rate work (telemetry, weapon PID, watchdog) |
+| Task | Core | Priority | Rate | Purpose |
+|------|------|----------|------|---------|
+| `task_core0` | 0 | 3 | Event-driven (IRQ) | Radio receive, drive motor control, failsafe |
+| `task_core1` | 1 | 2 | 100 Hz | Weapon PI controller, thermal safety (1 Hz) |
+
+### Why this split?
+
+- **Core 0** waits on the nRF24 IRQ pin (GPIO 27) instead of polling, so packet latency drops from worst-case ~50 ms to microseconds.
+- **Core 1** runs the weapon PID at a fixed 100 Hz with no jitter from SPI / I2C / radio, giving stable closed-loop control. Temperature checks are decoupled to 1 Hz so an I2C timeout never stalls the PID loop.
+- A single-item FreeRTOS queue (`state_queue`) passes throttle / arm / failsafe flags from Core 0 to Core 1. The overhead is negligible.
 
 ## Tuning the Weapon Controller
 
