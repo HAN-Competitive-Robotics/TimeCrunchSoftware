@@ -15,8 +15,6 @@ static const char *TAG = "MAIN";
  * Shared state between cores
  * -------------------------------------------------------------------------- */
 typedef struct {
-    int left_throttle;
-    int right_throttle;
     bool weapon_armed;
     bool failsafe_active;
     bool packet_received;
@@ -81,8 +79,6 @@ void task_core0(void *pvParameters)
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
                     if (failsafe_raw > 127) {
-                        state.left_throttle   = 0;
-                        state.right_throttle  = 0;
                         state.weapon_armed    = false;
                         state.failsafe_active = true;
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
@@ -92,8 +88,6 @@ void task_core0(void *pvParameters)
                         int left  = map_byte_to_throttle(left_raw);
                         int right = map_byte_to_throttle(right_raw);
 
-                        state.left_throttle   = left;
-                        state.right_throttle  = right;
                         state.weapon_armed    = (weapon_raw > 127);
                         state.failsafe_active = false;
 
@@ -114,8 +108,6 @@ void task_core0(void *pvParameters)
             motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
             weapon_controller_reset();
 
-            state.left_throttle   = 0;
-            state.right_throttle  = 0;
             state.weapon_armed    = false;
             state.failsafe_active = true;
             state.packet_received = false;
