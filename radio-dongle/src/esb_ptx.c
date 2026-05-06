@@ -21,7 +21,7 @@ static void event_handler(struct esb_evt const *event)
     case ESB_EVENT_TX_FAILED:
         esb_flush_tx();
         g_ready = true;
-        LOG_DBG("ESB TX failed");
+        LOG_DBG("ESB TX done (no ACK expected)");
         break;
 
     case ESB_EVENT_RX_RECEIVED:
@@ -46,7 +46,7 @@ struct esb_payload esb_radio_default_payload(void)
 
     pl.pipe = 0;
     pl.length = 4;
-    pl.noack = false;
+    pl.noack = true;
 
     pl.data[0] = 0x01;
     pl.data[1] = 0x00;
@@ -69,11 +69,12 @@ int esb_radio_init(void)
 
     config.protocol = ESB_PROTOCOL_ESB;
     config.retransmit_delay = 600;
-    config.bitrate = ESB_BITRATE_1MBPS;
+    config.retransmit_count = 0;
+    config.bitrate = ESB_BITRATE_2MBPS;
     config.event_handler = event_handler;
     config.mode = ESB_MODE_PTX;
     config.payload_length = 4;
-    config.selective_auto_ack = false;
+    config.selective_auto_ack = true;
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING))
     {
         config.use_fast_ramp_up = true;
@@ -124,7 +125,7 @@ struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uin
     struct esb_payload pl = {0};
     pl.pipe = 0;
     pl.length = 4;
-    pl.noack = false;
+    pl.noack = true;
     pl.data[0] = motor1;
     pl.data[1] = motor2;
     pl.data[2] = weaponEn;

@@ -119,16 +119,13 @@ static void handle_message(const uint8_t *msg, size_t len)
 
 	if (len == 4)
 	{
-		if(msg[0] > 255 || msg[1] > 255 || msg[2] > 255 || msg[3] > 255)
-		{
-			return;
-		}
 		struct esb_payload pl = esb_set_battlebot_payload(msg[0], msg[1], msg[2], msg[3]);
 		int err = esb_radio_send(&pl);
 		led_debug_toggle();
 
 		if (err)
 		{
+			LOG_ERR("ESB send failed: %d", err);
 		}
 	}
 }
@@ -244,32 +241,20 @@ int main(void)
 	
 	//LOG_INF("Init complete. Entering main loop.");
 
-	uint8_t counter = 0;
-
 	while (1)
 	{
-		if (esb_radio_ready())
+		/* Process any USB commands received from the ground station */
+		if (k_sem_take(&usb_rx_sem, K_MSEC(10)) == 0)
 		{
-			struct esb_payload pl = {0};
-			pl.pipe = 0;
-			pl.length = 4;
-			pl.noack = false;
-			pl.data[0] = counter;
-			pl.data[1] = counter + 1;
-			pl.data[2] = counter + 2;
-			pl.data[3] = counter + 3;
-
-			led_debug_toggle();
-			err = esb_radio_send(&pl);
-			if (err)
-			{
-				LOG_ERR("esb send failed: %d", err);
-			}
-			else
-			{
-				counter++;
-			}
+			usb_parse_available();
 		}
-		k_sleep(K_MSEC(200));
+
+		/* Toggle heartbeat LED slowly when idle */
+		static int led_ticks = 0;
+		if (++led_ticks >= 50)
+		{
+			led_ticks = 0;
+			led_debug_toggle();
+		}
 	}
 }
