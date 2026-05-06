@@ -314,7 +314,7 @@ class GUI:
     def add_log(self, msg):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False):
+    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False):
         self.screen.fill(self._c("bg"))
 
         # Header
@@ -375,6 +375,10 @@ class GUI:
         self._rect(inv_color, (600, 100, 160, 40))
         self._txt("DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL", "text", (610, 108))
 
+        arm_color = "good" if armed else "danger"
+        self._rect(arm_color, (600, 160, 160, 40))
+        self._txt("  ARMED  " if armed else "DISARMED", "text", (615, 168))
+
         # Stats
         hz = link.packet_count / (runtime_ms / 1000.0) if runtime_ms > 0 else 0
         self._txt(
@@ -397,10 +401,10 @@ class GUI:
         self._txt("CONTROLS", "accent", (20, 390))
         self._txt("Gamepad:  Left stick Y = Left motor    Right stick Y = Right motor", "text", (20, 412), small=True)
         self._txt("          RB = Weapon (idle)           RT = Rev up (attack)", "text", (20, 428), small=True)
-        self._txt("          B = Failsafe                 LB = Toggle drive invert", "text", (20, 444), small=True)
-        self._txt("Keyboard: W/S = Left motor    UP/DOWN = Right motor", "text", (20, 460), small=True)
-        self._txt("          SPACE = Weapon (idle)   LSHIFT = Rev up (attack)", "text", (20, 476), small=True)
-        self._txt("          F = Failsafe    I = Toggle drive invert    ESC = Exit", "text", (20, 492), small=True)
+        self._txt("          LB = Toggle drive invert     Start = Toggle arm", "text", (20, 444), small=True)
+        self._txt("          B = FAILSAFE (latches robot, exits station)", "text", (20, 460), small=True)
+        self._txt("Keyboard: W/S = Left motor    UP/DOWN = Right motor", "text", (20, 476), small=True)
+        self._txt("          SPACE = Weapon   LSHIFT = Rev   I = Invert   A = Arm   F = FAILSAFE   ESC = Exit", "text", (20, 492), small=True)
 
         pygame.display.flip()
 
@@ -508,6 +512,8 @@ def main():
     last_send = 0
     drive_inverted = False
     prev_invert_raw = False
+    armed = False
+    prev_arm_raw = False
 
     while running:
         now = pygame.time.get_ticks()
@@ -548,6 +554,31 @@ def main():
             values["motor_left"] = max(range_min, min(range_max, 2 * center - right_raw))
             values["motor_right"] = max(range_min, min(range_max, 2 * center - left_raw))
 
+        # Hard failsafe: latch robot permanently, exit station
+        if values.get("failsafe", 0) > 127:
+            gui.add_log("HARD FAILSAFE — robot latched, shutting down")
+            hard_packet = bytes([127, 127, 0, 255]) + b"\n"
+            link.ensure_connected()
+            for _ in range(5):
+                link.send(hard_packet)
+            pygame.quit()
+            sys.exit(0)
+
+        # Arm toggle
+        arm_raw = values.get("armed", 0) > 127
+        if arm_raw and not prev_arm_raw:
+            armed = not armed
+            gui.add_log(f"Robot {'ARMED' if armed else 'DISARMED'}")
+        prev_arm_raw = arm_raw
+
+        # Disarmed: hold all outputs neutral
+        if not armed:
+            center = cfg["packet"]["center"]
+            values["motor_left"] = center
+            values["motor_right"] = center
+            values["weapon"] = 0
+            values["weapon_rev"] = 0
+
         # Weapon logic: off=0, idle=64, attack=255
         weapon_base = values.get("weapon", 0)
         weapon_rev = values.get("weapon_rev", 0)
@@ -580,7 +611,7 @@ def main():
 
         # Draw
         elapsed = now - start_time
-        gui.draw(link, mapper, values, elapsed, drive_inverted)
+        gui.draw(link, mapper, values, elapsed, drive_inverted, armed)
         gui.clock.tick(rate_hz)
 
     pygame.quit()

@@ -75,6 +75,15 @@
       "keyboard": "i",
       "off_value": 0,
       "on_value": 255
+    },
+    "armed": {
+      "type": "button",
+      "gamepad": {
+        "button": 7
+      },
+      "keyboard": "a",
+      "off_value": 0,
+      "on_value": 255
     }
   },
   "ui": {

@@ -18,6 +18,7 @@ typedef struct {
     uint8_t weapon_throttle;
     bool    failsafe_active;
     bool    packet_received;
+    bool    hard_failsafe;   /* latches permanently on explicit failsafe — only power cycle clears */
 } robot_state_t;
 
 static QueueHandle_t  state_queue;
@@ -89,12 +90,15 @@ void task_core0(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
-                    if (failsafe_raw > 127) {
+                    if (state.hard_failsafe || failsafe_raw > 127) {
+                        state.hard_failsafe   = true;
                         state.weapon_throttle = 0;
                         state.failsafe_active = true;
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
-                        /* weapon_controller_reset() belongs to task_core1 */
+                        if (failsafe_raw > 127) {
+                            ESP_LOGW(TAG, "Hard failsafe triggered — latched until power cycle");
+                        }
                     } else {
                         int left  = map_byte_to_throttle(left_raw);
                         int right = map_byte_to_throttle(right_raw);
@@ -150,7 +154,7 @@ void task_core1(void *pvParameters)
         }
 
         /* Weapon control: 0=off, 1-127=idle, 128-255=attack */
-        if (state.failsafe_active || !state.packet_received || state.weapon_throttle == 0) {
+        if (state.hard_failsafe || state.failsafe_active || !state.packet_received || state.weapon_throttle == 0) {
             weapon_controller_reset();
             motor_set_throttle(MOTOR_WEAPON, 0);
         } else if (state.weapon_throttle >= 128) {
