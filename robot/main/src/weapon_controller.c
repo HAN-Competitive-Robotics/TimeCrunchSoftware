@@ -5,10 +5,17 @@
 
 static float   s_integral  = 0.0f;
 static int64_t s_last_time = 0;
+static float   s_target_rpm = WEAPON_ATTACK_RPM;
 
 void weapon_controller_init(void)
 {
     s_last_time = esp_timer_get_time();
+    s_target_rpm = WEAPON_ATTACK_RPM;
+}
+
+void weapon_controller_set_target_rpm(float rpm)
+{
+    s_target_rpm = rpm;
 }
 
 void weapon_controller_reset(void)
@@ -23,7 +30,7 @@ void weapon_controller_update(void)
     float dt    = (float)(now - s_last_time) / 1e6f;
     s_last_time = now;
 
-    float error = WEAPON_TARGET_RPM - encoder_get_rpm();
+    float error = s_target_rpm - encoder_get_rpm();
 
     s_integral += error * dt;
 

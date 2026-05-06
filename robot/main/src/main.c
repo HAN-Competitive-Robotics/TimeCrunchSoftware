@@ -15,7 +15,7 @@ static const char *TAG = "MAIN";
  * Shared state between cores
  * -------------------------------------------------------------------------- */
 typedef struct {
-    bool weapon_armed;
+    uint8_t weapon_throttle;
     bool failsafe_active;
     bool packet_received;
 } robot_state_t;
@@ -79,8 +79,8 @@ void task_core0(void *pvParameters)
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
                     if (failsafe_raw > 127) {
-                        state.weapon_armed    = false;
-                        state.failsafe_active = true;
+                        state.weapon_throttle   = 0;
+                        state.failsafe_active   = true;
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
                         weapon_controller_reset();
@@ -88,8 +88,8 @@ void task_core0(void *pvParameters)
                         int left  = map_byte_to_throttle(left_raw);
                         int right = map_byte_to_throttle(right_raw);
 
-                        state.weapon_armed    = (weapon_raw > 127);
-                        state.failsafe_active = false;
+                        state.weapon_throttle   = weapon_raw;
+                        state.failsafe_active   = false;
 
                         motor_set_throttle(MOTOR_LEFT_WHEEL, left);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, right);
@@ -108,9 +108,9 @@ void task_core0(void *pvParameters)
             motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
             weapon_controller_reset();
 
-            state.weapon_armed    = false;
-            state.failsafe_active = true;
-            state.packet_received = false;
+            state.weapon_throttle   = 0;
+            state.failsafe_active   = true;
+            state.packet_received   = false;
             xQueueOverwrite(state_queue, &state);
             have_packet = false;
         }
@@ -132,15 +132,16 @@ void task_core1(void *pvParameters)
             state = new_state;
         }
 
-        /* Weapon control */
-        if (state.failsafe_active || !state.packet_received) {
+        /* Weapon control: 0=off, 1-127=idle, 128-255=attack */
+        if (state.failsafe_active || !state.packet_received || state.weapon_throttle == 0) {
             weapon_controller_reset();
             motor_set_throttle(MOTOR_WEAPON, 0);
-        } else if (state.weapon_armed) {
+        } else if (state.weapon_throttle >= 128) {
+            weapon_controller_set_target_rpm(WEAPON_ATTACK_RPM);
             weapon_controller_update();
         } else {
-            weapon_controller_reset();
-            motor_set_throttle(MOTOR_WEAPON, 0);
+            weapon_controller_set_target_rpm(WEAPON_IDLE_RPM);
+            weapon_controller_update();
         }
 
         /* Temperature safety check at 1 Hz */
