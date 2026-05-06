@@ -13,15 +13,15 @@ IDF_PATH="$HOME/esp/esp-idf"
 
 echo "=== Flashing ESP32 receiver on $ESP_PORT ==="
 source "$IDF_PATH/export.sh"
-cd "$SCRIPT_DIR/controller"
+cd "$SCRIPT_DIR/robot"
 idf.py -p "$ESP_PORT" flash
 
 echo ""
 echo "=== Building + flashing nRF52840 dongle ==="
-cd "$SCRIPT_DIR/DongleFirmware"
+cd "$SCRIPT_DIR/radio-dongle"
 bash build.sh flash
 
 echo ""
 echo "=== Opening ESP32 monitor (Ctrl+] to exit) ==="
-cd "$SCRIPT_DIR/controller"
+cd "$SCRIPT_DIR/robot"
 idf.py -p "$ESP_PORT" monitor

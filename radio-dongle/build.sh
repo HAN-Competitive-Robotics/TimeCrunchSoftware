@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build script for DongleFirmware (nRF54H20DK radio core)
+# Build script for radio-dongle (nRF52840 USB CDC → ESB bridge)
 #
 # Usage:
 #   ./build.sh          — configure + build

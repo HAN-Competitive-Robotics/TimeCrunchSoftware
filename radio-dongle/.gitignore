@@ -5,6 +5,9 @@
 # build
 /build*/
 
+# macOS
+.DS_Store
+
 # local machine-specific config (see local/*.example for templates)
 /local/*
 !/local/*.example
