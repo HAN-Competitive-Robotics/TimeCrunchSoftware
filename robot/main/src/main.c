@@ -61,7 +61,7 @@ void task_core0(void *pvParameters)
              uint8_t weapon_raw   = rx_buf[2];
              uint8_t failsafe_raw = rx_buf[3];
 
-             ESP_LOGI(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
+             ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
                       left_raw, right_raw, weapon_raw, failsafe_raw);
 
              if (failsafe_raw > 127)
@@ -108,7 +108,7 @@ void task_core0(void *pvParameters)
              loop_count = 0;
              uint8_t status = nrf24_get_status();
              uint8_t fifo   = nrf24_read_reg(NRF_REG_FIFO_STATUS);
-             ESP_LOGI(TAG, "STATUS=0x%02X FIFO=0x%02X", status, fifo);
+             ESP_LOGD(TAG, "STATUS=0x%02X FIFO=0x%02X", status, fifo);
          }
 
          motor_safety_check();
