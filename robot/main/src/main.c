@@ -34,7 +34,7 @@ static int map_byte_to_throttle(uint8_t b)
 /* --------------------------------------------------------------------------
  * Core 0 — Radio receive, drive motors, failsafe
  *
- * Uses a 50 ms semaphore poll (not 500 ms) so the timeout check runs at
+ * Uses a 50 ms semaphore poll so the timeout check runs at
  * least 10× per second. Worst-case failsafe latency is now 550 ms max
  * (one 50 ms window past the 500 ms threshold) rather than 1000 ms.
  *
@@ -45,7 +45,7 @@ static int map_byte_to_throttle(uint8_t b)
 void task_core0(void *pvParameters)
 {
     const uint8_t address[NRF24_ADDR_LEN] = {'1', 'N', 'O', 'D', 'E'};
-    uint8_t       rx_buf[NRF24_MAX_PAYLOAD_LEN] = {0};
+    uint8_t       rx_buf[4] = {0};
     TickType_t    last_packet_tick = 0;
     bool          have_packet = false;
     robot_state_t state = {0};

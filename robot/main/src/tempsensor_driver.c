@@ -70,9 +70,14 @@ static void init_i2c_bus(i2c_port_t port, int sda, int scl)
 
 static void init_sensor(sensor_cfg_t *s)
 {
-    uint8_t chip_id;
-    if (bmp280_read(s, BMP280_REG_CHIP_ID, &chip_id, 1) != ESP_OK ||
-        chip_id != BMP280_CHIP_ID) {
+    uint8_t chip_id = 0;
+    if (bmp280_read(s, BMP280_REG_CHIP_ID, &chip_id, 1) != ESP_OK) {
+        ESP_LOGW(TAG, "I2C read failed for sensor at bus=%d addr=0x%02X", s->bus, s->addr);
+        return;
+    }
+    if (chip_id != BMP280_CHIP_ID) {
+        ESP_LOGW(TAG, "Unexpected chip ID 0x%02X (expected 0x%02X) at bus=%d addr=0x%02X — check sensor type",
+                 chip_id, BMP280_CHIP_ID, s->bus, s->addr);
         return;
     }
 
