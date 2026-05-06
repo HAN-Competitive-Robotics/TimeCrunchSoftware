@@ -384,9 +384,11 @@ class GUI:
         self._hline(380)
         self._txt("CONTROLS", "accent", (20, 390))
         self._txt("Gamepad:  Left stick Y = Left motor    Right stick Y = Right motor", "text", (20, 412), small=True)
-        self._txt("          RB = Weapon                    B = Failsafe", "text", (20, 428), small=True)
-        self._txt("Keyboard: W/S = Left motor    UP/DOWN = Right motor", "text", (20, 444), small=True)
-        self._txt("          SPACE = Weapon      F = Failsafe    ESC = Exit", "text", (20, 460), small=True)
+        self._txt("          RB = Weapon (idle)           RT = Rev up (attack)", "text", (20, 428), small=True)
+        self._txt("          B = Failsafe", "text", (20, 444), small=True)
+        self._txt("Keyboard: W/S = Left motor    UP/DOWN = Right motor", "text", (20, 460), small=True)
+        self._txt("          SPACE = Weapon (idle)   LSHIFT = Rev up (attack)", "text", (20, 476), small=True)
+        self._txt("          F = Failsafe    ESC = Exit", "text", (20, 492), small=True)
 
         pygame.display.flip()
 
