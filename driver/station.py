@@ -387,19 +387,19 @@ class GUI:
         ind2_y = ind1_y + ind_h + gap
         ind3_y = ind2_y + ind_h + gap
 
-        failsafe_on = values.get("failsafe", 0) > 127
+        killswitch_on = values.get("failsafe", 0) > 127
+
+        self._ind("warning" if drive_inverted else "panel",
+                  (panel_x, ind1_y, ind_w, ind_h),
+                  "DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL")
+
+        self._ind("danger" if killswitch_on else "panel",
+                  (panel_x, ind2_y, ind_w, ind_h),
+                  "KILLSWITCH ACTIVE" if killswitch_on else "KILLSWITCH OFF")
 
         w_color = {"safe": "panel", "idle": "warning", "attack": "danger"}[weapon_state]
         w_txt   = {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK"}[weapon_state]
-        self._ind(w_color, (panel_x, ind1_y, ind_w, ind_h), w_txt)
-
-        self._ind("danger" if failsafe_on else "panel",
-                  (panel_x, ind2_y, ind_w, ind_h),
-                  "FAILSAFE ACTIVE" if failsafe_on else "NORMAL")
-
-        self._ind("warning" if drive_inverted else "panel",
-                  (ind_x2, ind1_y, ind_w, ind_h),
-                  "DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL")
+        self._ind(w_color, (ind_x2, ind1_y, ind_w, ind_h), w_txt)
 
         self._ind("good" if armed else "danger",
                   (ind_x2, ind2_y, ind_w, ind_h),
@@ -451,7 +451,7 @@ class GUI:
             "RT / LSHIFT      = Weapon rev",
             "LB / I           = Drive invert",
             "Start / A        = Arm toggle",
-            "B  / F           = FAILSAFE",
+            "B  / F           = KILLSWITCH",
         ]
         cy = col_start_y
         for line in ctrl_lines:
@@ -564,13 +564,14 @@ def main():
     running = True
     start_time = pygame.time.get_ticks()
     last_send = 0
-    drive_inverted = False
-    prev_invert_raw = False
-    armed = False
-    prev_arm_raw = False
-    weapon_state    = "safe"   # safe | idle | attack
-    prev_weapon_btn = False
-    arcade_mode     = False
+    drive_inverted      = False
+    prev_invert_raw     = False
+    armed               = False
+    prev_arm_raw        = False
+    weapon_state        = "safe"   # safe | idle | attack
+    prev_weapon_btn     = False
+    arcade_mode         = False
+    killswitch_triggered = False
 
     while running:
         now = pygame.time.get_ticks()
@@ -624,19 +625,14 @@ def main():
             values["motor_left"]  = right_raw
             values["motor_right"] = left_raw
 
-        # Hard failsafe: latch robot permanently, exit station
-        if values.get("failsafe", 0) > 127:
-            gui.add_log("HARD FAILSAFE — robot latched, shutting down")
+        # Killswitch: latch robot permanently; station keeps running
+        if values.get("failsafe", 0) > 127 and not killswitch_triggered:
+            killswitch_triggered = True
+            gui.add_log("KILLSWITCH — robot latched until power cycle")
             hard_packet = bytes([127, 127, 0, 255]) + b"\n"
             link.ensure_connected()
             for _ in range(5):
                 link.send(hard_packet)
-            # Render final frame so FAILSAFE ACTIVE is visible, then wait before close
-            gui.draw(link, mapper, values, now - start_time,
-                     drive_inverted, armed, weapon_state, arcade_mode)
-            pygame.time.wait(1500)
-            pygame.quit()
-            sys.exit(0)
 
         # Arm toggle
         arm_raw = values.get("armed", 0) > 127
