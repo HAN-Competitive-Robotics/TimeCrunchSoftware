@@ -274,7 +274,9 @@ class GUI:
     def __init__(self, cfg):
         pygame.init()
         pygame.display.set_caption("Battlebot Ground Station")
-        self.screen = pygame.display.set_mode((cfg["ui"]["width"], cfg["ui"]["height"]))
+        self.screen = pygame.display.set_mode(
+            (cfg["ui"]["width"], cfg["ui"]["height"]), pygame.RESIZABLE
+        )
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 16)
         self.font_big = pygame.font.SysFont("monospace", 24)
@@ -294,7 +296,9 @@ class GUI:
         pygame.draw.rect(self.screen, self._c(color_name), rect, width, border_radius=4)
 
     def _hline(self, y, color_name="panel"):
-        pygame.draw.line(self.screen, self._c(color_name), (20, y), (780, y), 1)
+        sw = self.screen.get_width()
+        lm = int(0.025 * sw)
+        pygame.draw.line(self.screen, self._c(color_name), (lm, y), (sw - lm, y), 1)
 
     def _bar(self, x, y, w, h, value, center, range_min, range_max, label, color="accent"):
         self._rect("panel", (x, y, w, h))
@@ -311,100 +315,121 @@ class GUI:
         self._txt(label, "text", (x, y - 18))
         self._txt(f"{value}", "text", (x + w + 10, y + 4))
 
+    def _ind(self, color_name, rect, text):
+        """Filled indicator box with horizontally and vertically centred text."""
+        self._rect(color_name, rect)
+        x, y, w, h = rect
+        surf = self.font.render(text, True, self._c("text"))
+        tw, th = surf.get_size()
+        self.screen.blit(surf, (x + (w - tw) // 2, y + (h - th) // 2))
+
     def add_log(self, msg):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
     def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False):
+        sw, sh = self.screen.get_size()
         self.screen.fill(self._c("bg"))
+        lm = int(0.025 * sw)
 
-        # Header
-        self._txt("BATTLEBOT GROUND STATION", "accent", (20, 10), big=True)
+        # ── Header ──────────────────────────────────────────────────────────
+        self._txt("BATTLEBOT GROUND STATION", "accent", (lm, int(0.02 * sh)), big=True)
 
-        # Serial status block
+        sy = int(0.088 * sh)
         if link.state == "connected":
-            serial_color = "good"
-            serial_text = f"● SERIAL OK  ({link.port_name})"
+            self._txt(f"● SERIAL OK  ({link.port_name})", "good", (lm, sy))
         elif link.state == "searching":
-            serial_color = "warning"
-            serial_text = "● SERIAL SEARCHING..."
+            self._txt("● SERIAL SEARCHING...", "warning", (lm, sy))
         else:
-            serial_color = "danger"
-            serial_text = "● SERIAL LOST"
-        self._txt(serial_text, serial_color, (20, 42))
+            self._txt("● SERIAL LOST", "danger", (lm, sy))
 
-        # Gamepad status block
         if mapper.joystick_name:
-            gp_color = "good"
-            gp_text = f"🎮 {mapper.joystick_name}"
+            self._txt(f"🎮 {mapper.joystick_name}", "good", (sw // 2, sy))
         else:
-            gp_color = "warning"
-            gp_text = "⌨ KEYBOARD ONLY (no gamepad)"
-        self._txt(gp_text, gp_color, (400, 42))
+            self._txt("⌨ KEYBOARD ONLY (no gamepad)", "warning", (sw // 2, sy))
 
-        self._hline(72)
+        self._hline(int(0.15 * sh))
 
-        # Motor bars
-        center = 127
-        rmin, rmax = 0, 255
-        self._bar(80, 100, 300, 30, values.get("motor_left", center), center, rmin, rmax, "LEFT MOTOR")
-        self._bar(80, 170, 300, 30, values.get("motor_right", center), center, rmin, rmax, "RIGHT MOTOR")
+        # ── Motor bars ──────────────────────────────────────────────────────
+        bar_x = int(0.10 * sw)
+        bar_w = int(0.37 * sw)
+        bar_h = max(20, int(0.065 * sh))
+        bar1_y = int(0.225 * sh)
+        bar2_y = int(0.40 * sh)
 
-        # Weapon / Failsafe indicators
-        weapon_on = values.get("weapon", 0) > 127
-        weapon_rev = values.get("weapon_rev", 0) > 127
+        self._bar(bar_x, bar1_y, bar_w, bar_h,
+                  values.get("motor_left", 127), 127, 0, 255, "LEFT MOTOR")
+        self._bar(bar_x, bar2_y, bar_w, bar_h,
+                  values.get("motor_right", 127), 127, 0, 255, "RIGHT MOTOR")
+
+        # ── Status indicators — 2×2 grid, centred text, aligned with bars ───
+        panel_x = int(0.525 * sw)
+        ind_w   = int(0.21 * sw)
+        ind_x2  = int(0.755 * sw)
+        ind_h   = bar_h
+
+        weapon_on   = values.get("weapon", 0) > 127
+        weapon_rev  = values.get("weapon_rev", 0) > 127
         failsafe_on = values.get("failsafe", 0) > 127
 
-        if weapon_rev:
-            w_color = "danger"
-            w_txt = "WEAPON ATTACK"
-        elif weapon_on:
-            w_color = "warning"
-            w_txt = "WEAPON IDLE"
-        else:
-            w_color = "panel"
-            w_txt = "WEAPON SAFE"
-        self._rect(w_color, (420, 100, 160, 40))
-        self._txt(w_txt, "text", (440, 108))
+        w_color = "danger" if weapon_rev else ("warning" if weapon_on else "panel")
+        w_txt   = "WEAPON ATTACK" if weapon_rev else ("WEAPON IDLE" if weapon_on else "WEAPON SAFE")
+        self._ind(w_color, (panel_x, bar1_y, ind_w, ind_h), w_txt)
 
-        f_color = "danger" if failsafe_on else "panel"
-        self._rect(f_color, (420, 160, 160, 40))
         f_txt = "FAILSAFE ACTIVE" if failsafe_on else "NORMAL"
-        self._txt(f_txt, "text", (440, 168))
+        self._ind("danger" if failsafe_on else "panel",
+                  (panel_x, bar2_y, ind_w, ind_h), f_txt)
 
-        inv_color = "warning" if drive_inverted else "panel"
-        self._rect(inv_color, (600, 100, 160, 40))
-        self._txt("DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL", "text", (610, 108))
+        self._ind("warning" if drive_inverted else "panel",
+                  (ind_x2, bar1_y, ind_w, ind_h),
+                  "DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL")
 
-        arm_color = "good" if armed else "danger"
-        self._rect(arm_color, (600, 160, 160, 40))
-        self._txt("  ARMED  " if armed else "DISARMED", "text", (615, 168))
+        self._ind("good" if armed else "danger",
+                  (ind_x2, bar2_y, ind_w, ind_h),
+                  "ARMED" if armed else "DISARMED")
 
-        # Stats
+        # ── Stats ────────────────────────────────────────────────────────────
+        stats_y = int(0.49 * sh)
         hz = link.packet_count / (runtime_ms / 1000.0) if runtime_ms > 0 else 0
         self._txt(
             f"Pkts: {link.packet_count}  |  Rate: {hz:.1f} Hz  |  Idle: {link.idle_ms} ms",
-            "text",
-            (20, 220),
-            small=True,
+            "text", (lm, stats_y), small=True,
         )
 
-        # Event log
-        self._hline(255)
-        self._txt("EVENT LOG", "accent", (20, 265))
-        ly = 285
-        for entry in self.log:
-            self._txt(entry, "text", (20, ly), small=True)
-            ly += 16
+        # ── Bottom — event log (left) | controls (right) ────────────────────
+        sep_y = int(0.535 * sh)
+        mid_x = sw // 2
+        self._hline(sep_y)
+        pygame.draw.line(self.screen, self._c("panel"),
+                         (mid_x, sep_y), (mid_x, sh - lm), 1)
 
-        # Controls legend
-        self._hline(380)
-        self._txt("CONTROLS", "accent", (20, 390))
-        self._txt("Gamepad:  Left stick Y = Left motor    Right stick Y = Right motor", "text", (20, 412), small=True)
-        self._txt("          RB = Weapon (idle)           RT = Rev up (attack)", "text", (20, 428), small=True)
-        self._txt("          LB = Toggle drive invert     Start = Toggle arm", "text", (20, 444), small=True)
-        self._txt("          B = FAILSAFE (latches robot, exits station)", "text", (20, 460), small=True)
-        self._txt("Keyboard: W/S = Left motor    UP/DOWN = Right motor", "text", (20, 476), small=True)
-        self._txt("          SPACE = Weapon   LSHIFT = Rev   I = Invert   A = Arm   F = FAILSAFE   ESC = Exit", "text", (20, 492), small=True)
+        col_title_y = int(0.558 * sh)
+        col_start_y = int(0.595 * sh)
+        col_line_h  = max(14, int(0.034 * sh))
+        col2_x      = mid_x + lm
+
+        # Event log
+        self._txt("EVENT LOG", "accent", (lm, col_title_y))
+        ly = col_start_y
+        for entry in self.log:
+            self._txt(entry, "text", (lm, ly), small=True)
+            ly += col_line_h
+
+        # Controls
+        self._txt("CONTROLS", "accent", (col2_x, col_title_y))
+        ctrl_lines = [
+            "L-Stick / W-S    = Left drive",
+            "R-Stick / UP-DN  = Right drive",
+            "RB / SPACE       = Weapon idle",
+            "RT / LSHIFT      = Weapon rev",
+            "LB / I           = Drive invert",
+            "Start / A        = Arm toggle",
+            "B  / F           = FAILSAFE",
+            "ESC              = Exit",
+        ]
+        cy = col_start_y
+        for line in ctrl_lines:
+            self._txt(line, "text", (col2_x, cy), small=True)
+            cy += col_line_h
 
         pygame.display.flip()
 
@@ -419,7 +444,7 @@ def calibrate():
     print("Move sticks and press buttons. Press ESC to quit.\n")
 
     clock = pygame.time.Clock()
-    screen = pygame.display.set_mode((600, 400))
+    screen = pygame.display.set_mode((600, 400), pygame.RESIZABLE)
     pygame.display.set_caption("Gamepad Calibration")
     font = pygame.font.SysFont("monospace", 16)
 
@@ -439,6 +464,8 @@ def calibrate():
                 running = False
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+            if event.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
             if event.type == pygame.JOYDEVICEADDED:
                 js = pygame.joystick.Joystick(event.device_index)
                 js.init()
@@ -523,6 +550,8 @@ def main():
                 running = False
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+            if event.type == pygame.VIDEORESIZE:
+                gui.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
 
             msg = mapper.handle_event(event)
             if msg:
