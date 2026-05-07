@@ -48,7 +48,9 @@ Flash both devices and open the robot monitor. Ports are auto-detected on all pl
 
 **Any OS:**
 ```bash
-python scripts/flash.py
+python scripts/flash.py                    # interactive menu
+python scripts/flash.py --both             # competition build
+python scripts/flash.py --both --telemetry # test build with RF telemetry
 ```
 
 ---
@@ -124,6 +126,56 @@ Each value is a raw byte (`0–255`). Center for motors is `127`.
 - **Failsafe button** — Holding the failsafe button (gamepad B / keyboard `F`) immediately stops all motors.
 - **Thermal cutoff** — If any motor temperature exceeds 100 °C (or a sensor fails / returns NAN), throttle is cut to 0.
 - **Weapon PI controller** — Closed-loop speed control with anti-windup (tune `WEAPON_KP` / `WEAPON_KI` in `weapon_controller.h`).
+
+---
+
+## RF Telemetry (Test Mode)
+
+During testing, the robot sends temperature and weapon RPM back to the ground station via nRF24 ACK payloads. This feature is compile-time gated — competition builds have zero overhead and the radio protocol is unchanged.
+
+**What you see in the ground station:**
+
+```
+RF TELEM  L:42.3°C  R:41.8°C  W:38.1°C  RPM:8420
+```
+
+Displayed in the GUI at 1 Hz, below the packet stats line. Absent in competition builds since no frames are sent.
+
+**To flash a telemetry build:**
+
+```bash
+# Interactive menu — choose option 4
+python scripts/flash.py
+
+# Or directly
+python scripts/flash.py --both --telemetry
+```
+
+**Telemetry payload (16 bytes, sent back with every ACK):**
+
+| Bytes | Type | Field |
+|-------|------|-------|
+| 0–3 | float32 LE | Left wheel temperature (°C) |
+| 4–7 | float32 LE | Right wheel temperature (°C) |
+| 8–11 | float32 LE | Weapon temperature (°C) |
+| 12–15 | float32 LE | Weapon RPM |
+
+**What changes in telemetry mode:**
+
+| | Competition | Telemetry |
+|---|---|---|
+| ESB mode | Fixed payload, no-ACK | Dynamic payload (DPL), ACK enabled |
+| nRF24 FEATURE | `0x00` | `EN_DPL \| EN_ACK_PAY` |
+| Build directory | `build/` | `build_telemetry/` |
+| Packet overhead | None | ~1 round-trip per packet |
+
+Telemetry builds use separate build directories on both sides so you can switch modes without a full rebuild.
+
+**To return to a competition build:**
+
+```bash
+python scripts/flash.py --both
+```
 
 ---
 

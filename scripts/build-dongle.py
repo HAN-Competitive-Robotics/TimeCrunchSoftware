@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RADIO_DONGLE_DIR = REPO_ROOT / "radio-dongle"
 BOARD = "nrf52840dongle/nrf52840"
 BUILD_DIR = RADIO_DONGLE_DIR / "build"
+BUILD_DIR_TELEM = RADIO_DONGLE_DIR / "build_telemetry"
 
 
 def info(msg):
@@ -117,38 +118,38 @@ def setup_env():
     return env
 
 
-def build(clean=False):
+def build(clean=False, telemetry=False):
     west = find_west()
     env = setup_env()
 
-    if clean and BUILD_DIR.exists():
+    build_dir = BUILD_DIR_TELEM if telemetry else BUILD_DIR
+
+    if clean and build_dir.exists():
         info("Removing build directory...")
-        shutil.rmtree(BUILD_DIR)
+        shutil.rmtree(build_dir)
 
-    info(f"Building for {BOARD}...")
-    subprocess.run(
-        [
-            west,
-            "build",
-            "--board",
-            BOARD,
-            "--build-dir",
-            str(BUILD_DIR),
-            "--no-sysbuild",
-            str(RADIO_DONGLE_DIR),
-        ],
-        env=env,
-        check=True,
-    )
-    info(f"Done. Artifacts in {BUILD_DIR}")
+    info(f"Building for {BOARD} ({'TELEMETRY' if telemetry else 'competition'} build)...")
+    cmd = [
+        west,
+        "build",
+        "--board", BOARD,
+        "--build-dir", str(build_dir),
+        "--no-sysbuild",
+        str(RADIO_DONGLE_DIR),
+    ]
+    if telemetry:
+        cmd += ["--", "-DCONFIG_DONGLE_TELEMETRY=y"]
+    subprocess.run(cmd, env=env, check=True)
+    info(f"Done. Artifacts in {build_dir}")
 
 
-def flash(key_file=None):
+def flash(key_file=None, telemetry=False):
     nrfutil = find_nrfutil()
     env = setup_env()
 
-    hex_file = BUILD_DIR / "zephyr" / "zephyr.hex"
-    zip_file = BUILD_DIR / "dfu_package.zip"
+    build_dir = BUILD_DIR_TELEM if telemetry else BUILD_DIR
+    hex_file = build_dir / "zephyr" / "zephyr.hex"
+    zip_file = build_dir / "dfu_package.zip"
     local_nrfutil_home = RADIO_DONGLE_DIR / "local" / "nrfutil-home"
 
     if not hex_file.exists():
@@ -203,15 +204,17 @@ def main():
     parser = argparse.ArgumentParser(description="Build / flash the radio dongle")
     parser.add_argument("action", nargs="?", choices=["build", "flash", "clean"], default="build")
     parser.add_argument("--key-file", type=Path, default=None, help="PEM private key for signing DFU package")
+    parser.add_argument("--telemetry", action="store_true",
+                        help="Enable RF telemetry build (uses build_telemetry/ directory)")
     args = parser.parse_args()
 
     if args.action == "clean":
-        build(clean=True)
+        build(clean=True, telemetry=args.telemetry)
     elif args.action == "flash":
-        build()
-        flash(key_file=args.key_file)
+        build(telemetry=args.telemetry)
+        flash(key_file=args.key_file, telemetry=args.telemetry)
     else:
-        build()
+        build(telemetry=args.telemetry)
 
 
 if __name__ == "__main__":

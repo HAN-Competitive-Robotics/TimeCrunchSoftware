@@ -89,18 +89,6 @@ static void usb_rx_thread_fn(void *a, void *b, void *c)
 
 static void handle_message(const uint8_t *msg, size_t len)
 {
-	uint8_t echo[5];
-	echo[0] = msg[0];
-	echo[1] = msg[1];
-	echo[2] = msg[2];
-	echo[3] = msg[3];
-	echo[4] = '\n';
-
-	int sent = usb_cdc_write(echo, 5);
-	if (sent < 5) {
-		LOG_WRN("Echo truncated: sent %d of 5 bytes", sent);
-	}
-
 	if (len == 4) {
 		if (!esb_radio_ready()) {
 			LOG_WRN("ESB not ready — packet dropped");
@@ -221,6 +209,16 @@ int main(void)
 		if (k_sem_take(&usb_rx_sem, K_MSEC(10)) == 0) {
 			usb_parse_available();
 		}
+
+#ifdef CONFIG_DONGLE_TELEMETRY
+		{
+			uint8_t frame[1 + ESB_TELEM_LEN];
+			frame[0] = 'T';
+			if (esb_telem_try_get(&frame[1], ESB_TELEM_LEN) == 0) {
+				usb_cdc_write(frame, sizeof(frame));
+			}
+		}
+#endif
 
 		static int led_ticks;
 		if (++led_ticks >= 50) {

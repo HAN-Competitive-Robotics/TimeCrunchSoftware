@@ -1,0 +1,14 @@
+menu "Robot Telemetry"
+
+config ROBOT_TELEMETRY
+    bool "Enable RF telemetry via nRF24 ACK payload"
+    default n
+    help
+      When enabled, temperature and weapon RPM are packed into a 16-byte
+      ACK payload and sent back to the radio dongle on every received
+      control packet. Also enables EN_DPL and EN_ACK_PAY in the nRF24
+      FEATURE register and DPL on pipe 0.
+      Pair with CONFIG_DONGLE_TELEMETRY on the radio dongle.
+      Disable for competition builds — zero overhead when off.
+
+endmenu

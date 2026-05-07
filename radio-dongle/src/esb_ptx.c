@@ -1,5 +1,6 @@
 #include "esb_ptx.h"
 
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
@@ -8,6 +9,16 @@ LOG_MODULE_REGISTER(esb_radio, CONFIG_ESB_PTX_APP_LOG_LEVEL);
 static volatile bool g_ready = true;
 
 static struct esb_payload rx_payload;
+
+#ifdef CONFIG_DONGLE_TELEMETRY
+K_MSGQ_DEFINE(s_telem_msgq, ESB_TELEM_LEN, 4, 4);
+
+int esb_telem_try_get(uint8_t *buf, size_t len)
+{
+    if (len < ESB_TELEM_LEN) return -EINVAL;
+    return k_msgq_get(&s_telem_msgq, buf, K_NO_WAIT);
+}
+#endif
 
 static void event_handler(struct esb_evt const *event)
 {
@@ -25,13 +36,18 @@ static void event_handler(struct esb_evt const *event)
         break;
 
     case ESB_EVENT_RX_RECEIVED:
-        /* PTX usually only receives ACK payloads if enabled. */
         while (esb_read_rx_payload(&rx_payload) == 0)
         {
+#ifdef CONFIG_DONGLE_TELEMETRY
+            if (rx_payload.length == ESB_TELEM_LEN) {
+                k_msgq_put(&s_telem_msgq, rx_payload.data, K_NO_WAIT);
+            }
+#else
             LOG_DBG("ESB RX len %d: %02x %02x %02x %02x %02x %02x %02x %02x",
                     rx_payload.length,
                     rx_payload.data[0], rx_payload.data[1], rx_payload.data[2], rx_payload.data[3],
                     rx_payload.data[4], rx_payload.data[5], rx_payload.data[6], rx_payload.data[7]);
+#endif
         }
         break;
 
@@ -51,14 +67,19 @@ int esb_radio_init(void)
 
     struct esb_config config = ESB_DEFAULT_CONFIG;
 
+#ifdef CONFIG_DONGLE_TELEMETRY
+    config.protocol = ESB_PROTOCOL_ESB_DPL;
+    config.selective_auto_ack = false;
+#else
     config.protocol = ESB_PROTOCOL_ESB;
+    config.selective_auto_ack = true;
+#endif
     config.retransmit_delay = 600;
     config.retransmit_count = 0;
     config.bitrate = ESB_BITRATE_2MBPS;
     config.event_handler = event_handler;
     config.mode = ESB_MODE_PTX;
     config.payload_length = 4;
-    config.selective_auto_ack = true;
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING))
     {
         config.use_fast_ramp_up = true;
@@ -109,7 +130,7 @@ struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uin
     struct esb_payload pl = {0};
     pl.pipe = 0;
     pl.length = 4;
-    pl.noack = true;
+    pl.noack = !IS_ENABLED(CONFIG_DONGLE_TELEMETRY);
     pl.data[0] = motor1;
     pl.data[1] = motor2;
     pl.data[2] = weaponEn;

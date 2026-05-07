@@ -35,6 +35,12 @@ extern "C"
 #define NRF_CMD_FLUSH_RX     0xE2
 #define NRF_CMD_NOP          0xFF
 
+#ifdef CONFIG_ROBOT_TELEMETRY
+#define NRF_CMD_W_ACK_PAYLOAD   0xA8   /* | pipe_number; pipe 0 = 0xA8 */
+#define NRF_FEATURE_EN_DPL      (1U << 2)
+#define NRF_FEATURE_EN_ACK_PAY  (1U << 1)
+#endif
+
 // Registers
 #define NRF_REG_CONFIG      0x00
 #define NRF_REG_EN_AA       0x01
@@ -89,6 +95,11 @@ esp_err_t nrf24_receive_packet(uint8_t *data, size_t len);
 
 // One-shot configuration
 esp_err_t nrf24_basic_config(const uint8_t *addr, uint8_t channel, uint8_t payload_len);
+
+#ifdef CONFIG_ROBOT_TELEMETRY
+// Load telemetry into ACK TX FIFO — sent back to PTX on next ACK
+esp_err_t nrf24_write_ack_payload(const uint8_t *data, size_t len);
+#endif
 
 #ifdef __cplusplus
 }

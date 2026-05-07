@@ -202,6 +202,18 @@ esp_err_t nrf24_receive_packet(uint8_t *data, size_t len)
     return ESP_OK;
 }
 
+#ifdef CONFIG_ROBOT_TELEMETRY
+esp_err_t nrf24_write_ack_payload(const uint8_t *data, size_t len)
+{
+    if (data == NULL || len == 0 || len > NRF24_MAX_PAYLOAD_LEN) return ESP_ERR_INVALID_ARG;
+    flush_tx(); /* discard any stale payload so the FIFO never saturates */
+    uint8_t tx[1 + NRF24_MAX_PAYLOAD_LEN] = {0};
+    tx[0] = NRF_CMD_W_ACK_PAYLOAD; /* pipe 0 */
+    memcpy(&tx[1], data, len);
+    return spi_transfer(tx, NULL, len + 1);
+}
+#endif
+
 esp_err_t nrf24_basic_config(const uint8_t *addr, uint8_t channel, uint8_t payload_len)
 {
     if (addr == NULL || payload_len == 0 || payload_len > NRF24_MAX_PAYLOAD_LEN) {
@@ -224,8 +236,13 @@ esp_err_t nrf24_basic_config(const uint8_t *addr, uint8_t channel, uint8_t paylo
     ESP_ERROR_CHECK(write_buf(NRF_REG_RX_ADDR_P0,  addr, NRF24_ADDR_LEN));
     ESP_ERROR_CHECK(write_buf(NRF_REG_TX_ADDR,     addr, NRF24_ADDR_LEN));
     ESP_ERROR_CHECK(write_reg(NRF_REG_RX_PW_P0,   payload_len));
-    ESP_ERROR_CHECK(write_reg(NRF_REG_DYNPD,       0x00));
-    ESP_ERROR_CHECK(write_reg(NRF_REG_FEATURE,     0x00));
+#ifdef CONFIG_ROBOT_TELEMETRY
+    ESP_ERROR_CHECK(write_reg(NRF_REG_DYNPD,   0x01)); /* DPL_P0: required for ACK payloads */
+    ESP_ERROR_CHECK(write_reg(NRF_REG_FEATURE,  NRF_FEATURE_EN_DPL | NRF_FEATURE_EN_ACK_PAY));
+#else
+    ESP_ERROR_CHECK(write_reg(NRF_REG_DYNPD,   0x00));
+    ESP_ERROR_CHECK(write_reg(NRF_REG_FEATURE,  0x00));
+#endif
     ESP_ERROR_CHECK(write_reg(NRF_REG_CONFIG,
         NRF_CONFIG_EN_CRC | NRF_CONFIG_CRCO | NRF_CONFIG_PWR_UP | NRF_CONFIG_PRIM_RX));
 
