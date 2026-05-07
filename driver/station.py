@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Battlebot Ground Station
+HCR Mission Control
 Cross-platform driver station with keyboard + Xbox/gamepad support.
 Edit config.json to change controls without touching code.
 """
@@ -8,10 +8,13 @@ Edit config.json to change controls without touching code.
 import argparse
 import json
 import os
+import struct
 import sys
 import time
 from collections import deque
 from pathlib import Path
+
+TELEM_FRAME_LEN = 17  # 'T' (1 byte) + 4x float32 LE (16 bytes)
 
 # ---------------------------------------------------------------------------
 # Pygame & serial are external dependencies
@@ -74,6 +77,7 @@ class SerialLink:
         self.packet_count = 0
         self.last_ok = 0
         self.state = "searching"  # searching | connected | lost
+        self.last_telem = None
 
     def _try_open(self):
         port = self.cfg["serial"]["port"]
@@ -114,6 +118,22 @@ class SerialLink:
             self.ser = None
             self.state = "lost"
             return False
+
+    def read_telemetry(self):
+        if self.ser is None:
+            return
+        try:
+            while self.ser.in_waiting >= TELEM_FRAME_LEN:
+                hdr = self.ser.read(1)
+                if hdr == b'T':
+                    data = self.ser.read(TELEM_FRAME_LEN - 1)
+                    if len(data) == TELEM_FRAME_LEN - 1:
+                        self.last_telem = struct.unpack('<ffff', data)
+                    return
+        except serial.SerialException:
+            self.ser.close()
+            self.ser = None
+            self.state = "lost"
 
     @property
     def connected(self):
@@ -273,7 +293,7 @@ class InputMapper:
 class GUI:
     def __init__(self, cfg):
         pygame.init()
-        pygame.display.set_caption("Battlebot Ground Station")
+        pygame.display.set_caption("HCR Mission Control")
         self.screen = pygame.display.set_mode(
             (cfg["ui"]["width"], cfg["ui"]["height"]), pygame.RESIZABLE
         )
@@ -340,13 +360,13 @@ class GUI:
     def add_log(self, msg):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False, weapon_state="safe", arcade_mode=False):
+    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False, weapon_state="safe", arcade_mode=False, telemetry=None):
         sw, sh = self.screen.get_size()
         self.screen.fill(self._c("bg"))
         lm = int(0.025 * sw)
 
         # ── Header ──────────────────────────────────────────────────────────
-        self._txt("BATTLEBOT GROUND STATION", "accent", (lm, int(0.02 * sh)), big=True)
+        self._txt("HCR MISSION CONTROL", "accent", (lm, int(0.02 * sh)), big=True)
 
         sy = int(0.088 * sh)
         if link.state == "connected":
@@ -420,8 +440,18 @@ class GUI:
             "text", (lm, stats_y), small=True,
         )
 
+        telem_row_h = 0
+        if telemetry:
+            tl, tr, tw, rpm = telemetry
+            telem_y = stats_y + max(13, int(0.034 * sh))
+            self._txt(
+                f"RF TELEM  L:{tl:.1f}°C  R:{tr:.1f}°C  W:{tw:.1f}°C  RPM:{rpm:.0f}",
+                "good", (lm, telem_y), small=True,
+            )
+            telem_row_h = max(13, int(0.034 * sh))
+
         # ── Bottom — event log (left) | controls (right) ────────────────────
-        sep_y = stats_y + max(16, int(0.04 * sh))
+        sep_y = stats_y + max(16, int(0.04 * sh)) + telem_row_h
         mid_x = sw // 2
         self._hline(sep_y)
         pygame.draw.line(self.screen, self._c("panel"),
@@ -532,7 +562,7 @@ def calibrate():
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Battlebot Ground Station")
+    parser = argparse.ArgumentParser(description="HCR Mission Control")
     parser.add_argument("--calibrate", action="store_true", help="Show gamepad axis/button numbers")
     args = parser.parse_args()
 
@@ -686,9 +716,13 @@ def main():
                     gui.add_log("Serial write failed")
             last_send = now
 
+        # Read telemetry (non-blocking; only available in test builds)
+        link.read_telemetry()
+
         # Draw
         elapsed = now - start_time
-        gui.draw(link, mapper, values, elapsed, drive_inverted, armed, weapon_state, arcade_mode)
+        gui.draw(link, mapper, values, elapsed, drive_inverted, armed, weapon_state, arcade_mode,
+                 telemetry=link.last_telem)
         gui.clock.tick(rate_hz)
 
     pygame.quit()
