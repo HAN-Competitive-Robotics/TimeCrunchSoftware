@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "motor_driver.h"
 #include "tempsensor_driver.h"
 #include "encoder_driver.h"
@@ -10,6 +11,16 @@
 #include "nrf24.h"
 
 static const char *TAG = "MAIN";
+
+#ifdef CONFIG_ROBOT_TELEMETRY
+typedef struct {
+    float temp_l;
+    float temp_r;
+    float temp_w;
+    float rpm;
+} telem_t;
+static QueueHandle_t telem_queue;
+#endif
 
 /* --------------------------------------------------------------------------
  * Shared state between cores
@@ -82,6 +93,13 @@ void task_core0(void *pvParameters)
                     last_packet_tick = xTaskGetTickCount();
                     have_packet = true;
 
+#ifdef CONFIG_ROBOT_TELEMETRY
+                    telem_t telem;
+                    if (xQueuePeek(telem_queue, &telem, 0) == pdTRUE) {
+                        nrf24_write_ack_payload((uint8_t *)&telem, sizeof(telem));
+                    }
+#endif
+
                     uint8_t left_raw     = rx_buf[0];
                     uint8_t right_raw    = rx_buf[1];
                     uint8_t weapon_raw   = rx_buf[2];
@@ -90,22 +108,31 @@ void task_core0(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
-                    if (state.hard_failsafe || failsafe_raw > 127 || temp_get_temperature(temp_sensor_t) >= 90.0) {
+                    bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= 90.0f ||
+                                        temp_get_temperature(TEMP_RIGHT_WHEEL) >= 90.0f ||
+                                        temp_get_temperature(TEMP_WEAPON)      >= 90.0f;
+                    if ((failsafe_raw > 127 || temp_critical) && !state.hard_failsafe) {
+                        /* Killswitch: zero everything, then deep-sleep.
+                         * No wake source is configured — only a power cycle recovers. */
                         state.hard_failsafe   = true;
                         state.weapon_throttle = 0;
                         state.failsafe_active = true;
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
-                        if (failsafe_raw > 127) {
-                            ESP_LOGW(TAG, "Hard failsafe triggered — latched until power cycle");
-                        }
-                    } else {
+                        xQueueOverwrite(state_queue, &state); /* tell core1 to zero weapon now */
+                        if (temp_critical)
+                            ESP_LOGW(TAG, "THERMAL CUTOFF — entering deep sleep, power cycle to recover");
+                        else
+                            ESP_LOGW(TAG, "KILLSWITCH — entering deep sleep, power cycle to recover");
+                        vTaskDelay(pdMS_TO_TICKS(200)); /* allow ESCs and core1 to see safe state */
+                        esp_deep_sleep_start();
+                    } else if (!state.hard_failsafe) {
                         int left  = map_byte_to_throttle(left_raw);
                         int right = map_byte_to_throttle(right_raw);
 
                         state.weapon_throttle = weapon_raw;
                         state.failsafe_active = false;
-r                        motor_set_throttle(MOTOR_LEFT_WHEEL, left);
+                        motor_set_throttle(MOTOR_LEFT_WHEEL, left);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, right);
                     }
 
@@ -182,6 +209,18 @@ void task_temp(void *pvParameters)
     while (1) {
         motor_safety_check();
 
+#ifdef CONFIG_ROBOT_TELEMETRY
+        {
+            telem_t telem = {
+                .temp_l = temp_get_temperature(TEMP_LEFT_WHEEL),
+                .temp_r = temp_get_temperature(TEMP_RIGHT_WHEEL),
+                .temp_w = temp_get_temperature(TEMP_WEAPON),
+                .rpm    = encoder_get_rpm(),
+            };
+            xQueueOverwrite(telem_queue, &telem);
+        }
+#endif
+
         ESP_LOGD(TAG, "TELEM: L=%.1f°C R=%.1f°C W=%.1f°C  RPM=%.0f",
                  temp_get_temperature(TEMP_LEFT_WHEEL),
                  temp_get_temperature(TEMP_RIGHT_WHEEL),
@@ -207,6 +246,10 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to create state queue");
         return;
     }
+
+#ifdef CONFIG_ROBOT_TELEMETRY
+    telem_queue = xQueueCreate(1, sizeof(telem_t));
+#endif
 
     /* Stack sizes: core0 does heavy init (SPI, I2C, MCPWM, PCNT drivers).
      * 6144 words gives headroom; verify uxTaskGetStackHighWaterMark in logs. */
