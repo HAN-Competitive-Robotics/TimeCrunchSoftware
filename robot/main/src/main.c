@@ -182,6 +182,12 @@ void task_temp(void *pvParameters)
     while (1) {
         motor_safety_check();
 
+        ESP_LOGD(TAG, "TELEM: L=%.1f°C R=%.1f°C W=%.1f°C  RPM=%.0f",
+                 temp_get_temperature(TEMP_LEFT_WHEEL),
+                 temp_get_temperature(TEMP_RIGHT_WHEEL),
+                 temp_get_temperature(TEMP_WEAPON),
+                 encoder_get_rpm());
+
         ESP_LOGD(TAG, "Core0 stack HWM: %u  Core1: %u  Temp: %u",
                  h_core0 ? uxTaskGetStackHighWaterMark(h_core0) : 0,
                  h_core1 ? uxTaskGetStackHighWaterMark(h_core1) : 0,

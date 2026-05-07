@@ -325,10 +325,9 @@ class GUI:
             fill_y, fill_h = (vy, cy - vy) if value > center else (cy, vy - cy)
             pygame.draw.rect(self.screen, self._c("accent"),
                              (x + 4, fill_y, w - 8, max(2, fill_h)), border_radius=2)
-        lsurf = self.font.render(label, True, self._c("text"))
-        self.screen.blit(lsurf, (x + (w - lsurf.get_width()) // 2, y + h + 4))
-        vsurf = self.font_small.render(str(value), True, self._c("text"))
-        self.screen.blit(vsurf, (x + (w - vsurf.get_width()) // 2, y - 14))
+        # Single header line above the bar — no text below, avoids overlap with stats
+        hsurf = self.font_small.render(f"{label}: {value}", True, self._c("text"))
+        self.screen.blit(hsurf, (x + (w - hsurf.get_width()) // 2, y - 15))
 
     def _ind(self, color_name, rect, text):
         """Filled indicator box with horizontally and vertically centred text."""
