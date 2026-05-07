@@ -90,7 +90,7 @@ void task_core0(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
-                    if (state.hard_failsafe || failsafe_raw > 127) {
+                    if (state.hard_failsafe || failsafe_raw > 127 || temp_get_temperature(temp_sensor_t) >= 90.0) {
                         state.hard_failsafe   = true;
                         state.weapon_throttle = 0;
                         state.failsafe_active = true;
@@ -105,8 +105,7 @@ void task_core0(void *pvParameters)
 
                         state.weapon_throttle = weapon_raw;
                         state.failsafe_active = false;
-
-                        motor_set_throttle(MOTOR_LEFT_WHEEL, left);
+r                        motor_set_throttle(MOTOR_LEFT_WHEEL, left);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, right);
                     }
 
