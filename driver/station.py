@@ -316,6 +316,20 @@ class GUI:
         self._txt(label, "text", (x, y - 18))
         self._txt(f"{value}", "text", (x + w + 10, y + 4))
 
+    def _vbar(self, x, y, w, h, value, center, range_min, range_max, label):
+        self._rect("panel", (x, y, w, h))
+        cy = int(y + h * (range_max - center) / (range_max - range_min))
+        pygame.draw.line(self.screen, self._c("text"), (x, cy), (x + w, cy), 2)
+        if value != center:
+            vy = int(y + h * (range_max - value) / (range_max - range_min))
+            fill_y, fill_h = (vy, cy - vy) if value > center else (cy, vy - cy)
+            pygame.draw.rect(self.screen, self._c("accent"),
+                             (x + 4, fill_y, w - 8, max(2, fill_h)), border_radius=2)
+        lsurf = self.font.render(label, True, self._c("text"))
+        self.screen.blit(lsurf, (x + (w - lsurf.get_width()) // 2, y + h + 4))
+        vsurf = self.font_small.render(str(value), True, self._c("text"))
+        self.screen.blit(vsurf, (x + (w - vsurf.get_width()) // 2, y - 14))
+
     def _ind(self, color_name, rect, text):
         """Filled indicator box with horizontally and vertically centred text."""
         self._rect(color_name, rect)
@@ -350,45 +364,49 @@ class GUI:
 
         self._hline(int(0.15 * sh))
 
-        # ── Motor bars ──────────────────────────────────────────────────────
-        bar_h  = max(18, int(0.06 * sh))
-        bar_x  = int(0.10 * sw)
-        bar_w  = int(0.37 * sw)
-        bar1_y = int(0.215 * sh)
-        bar2_y = int(0.345 * sh)
+        # ── Vertical motor bars (side by side) ──────────────────────────────
+        bar_bw = max(40, int(0.08 * sw))
+        bar_h  = max(80, int(0.22 * sh))
+        bar_gap = max(12, int(0.025 * sw))
+        bar_x1 = int(0.10 * sw)
+        bar_x2 = bar_x1 + bar_bw + bar_gap
+        bar_y  = int(0.21 * sh)
 
-        self._bar(bar_x, bar1_y, bar_w, bar_h,
-                  values.get("motor_left", 127), 127, 0, 255, "LEFT MOTOR")
-        self._bar(bar_x, bar2_y, bar_w, bar_h,
-                  values.get("motor_right", 127), 127, 0, 255, "RIGHT MOTOR")
+        self._vbar(bar_x1, bar_y, bar_bw, bar_h,
+                   values.get("motor_left",  127), 127, 0, 255, "LEFT")
+        self._vbar(bar_x2, bar_y, bar_bw, bar_h,
+                   values.get("motor_right", 127), 127, 0, 255, "RIGHT")
 
-        # ── Status indicators — 2×2 grid, centred text, aligned with bars ───
+        # ── Status indicators — 2×2 grid + drive-mode row ───────────────────
         panel_x = int(0.525 * sw)
         ind_w   = int(0.21 * sw)
         ind_x2  = int(0.755 * sw)
-        ind_h   = bar_h
+        ind_h   = max(26, int(0.058 * sh))
         gap     = max(8, int(0.018 * sh))
+
+        ind1_y = bar_y
+        ind2_y = ind1_y + ind_h + gap
+        ind3_y = ind2_y + ind_h + gap
 
         failsafe_on = values.get("failsafe", 0) > 127
 
         w_color = {"safe": "panel", "idle": "warning", "attack": "danger"}[weapon_state]
         w_txt   = {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK"}[weapon_state]
-        self._ind(w_color, (panel_x, bar1_y, ind_w, ind_h), w_txt)
+        self._ind(w_color, (panel_x, ind1_y, ind_w, ind_h), w_txt)
 
         self._ind("danger" if failsafe_on else "panel",
-                  (panel_x, bar2_y, ind_w, ind_h),
+                  (panel_x, ind2_y, ind_w, ind_h),
                   "FAILSAFE ACTIVE" if failsafe_on else "NORMAL")
 
         self._ind("warning" if drive_inverted else "panel",
-                  (ind_x2, bar1_y, ind_w, ind_h),
+                  (ind_x2, ind1_y, ind_w, ind_h),
                   "DRIVE INVERTED" if drive_inverted else "DRIVE NORMAL")
 
         self._ind("good" if armed else "danger",
-                  (ind_x2, bar2_y, ind_w, ind_h),
+                  (ind_x2, ind2_y, ind_w, ind_h),
                   "ARMED" if armed else "DISARMED")
 
         # Drive mode toggle button — full right-panel width, clickable
-        ind3_y   = bar2_y + ind_h + gap
         btn_rect = pygame.Rect(panel_x, ind3_y, ind_x2 + ind_w - panel_x, ind_h)
         self.drive_mode_btn_rect = btn_rect
         self._ind("accent" if arcade_mode else "panel", btn_rect,
@@ -396,7 +414,7 @@ class GUI:
         pygame.draw.rect(self.screen, self._c("accent"), btn_rect, 1, border_radius=4)
 
         # ── Stats ────────────────────────────────────────────────────────────
-        stats_y = ind3_y + ind_h + gap
+        stats_y = max(bar_y + bar_h + gap, ind3_y + ind_h + gap)
         hz = link.packet_count / (runtime_ms / 1000.0) if runtime_ms > 0 else 0
         self._txt(
             f"Pkts: {link.packet_count}  |  Rate: {hz:.1f} Hz  |  Idle: {link.idle_ms} ms",
@@ -600,14 +618,12 @@ def main():
             gui.add_log(f"Drive invert {'ON' if drive_inverted else 'OFF'}")
         prev_invert_raw = invert_raw
 
-        # Apply drive invert: swap sides and negate both around center
+        # Apply drive invert: swap left/right only — forward stays forward
         if drive_inverted:
-            center = cfg["packet"]["center"]
-            range_min, range_max = cfg["packet"]["range"]
-            left_raw = values.get("motor_left", center)
-            right_raw = values.get("motor_right", center)
-            values["motor_left"] = max(range_min, min(range_max, 2 * center - right_raw))
-            values["motor_right"] = max(range_min, min(range_max, 2 * center - left_raw))
+            left_raw  = values.get("motor_left",  cfg["packet"]["center"])
+            right_raw = values.get("motor_right", cfg["packet"]["center"])
+            values["motor_left"]  = right_raw
+            values["motor_right"] = left_raw
 
         # Hard failsafe: latch robot permanently, exit station
         if values.get("failsafe", 0) > 127:
@@ -616,6 +632,10 @@ def main():
             link.ensure_connected()
             for _ in range(5):
                 link.send(hard_packet)
+            # Render final frame so FAILSAFE ACTIVE is visible, then wait before close
+            gui.draw(link, mapper, values, now - start_time,
+                     drive_inverted, armed, weapon_state, arcade_mode)
+            pygame.time.wait(1500)
             pygame.quit()
             sys.exit(0)
 
