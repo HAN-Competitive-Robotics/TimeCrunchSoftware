@@ -28,7 +28,7 @@
     "motor_right": {
       "type": "axis",
       "gamepad": {
-        "axis": 4,
+        "axis": 3,
         "invert": true,
         "deadzone": 0.15
       },
@@ -42,7 +42,7 @@
     "weapon": {
       "type": "button",
       "gamepad": {
-        "button": 5
+        "button": 10
       },
       "keyboard": "space",
       "off_value": 0,
@@ -70,16 +70,30 @@
     "drive_invert": {
       "type": "button",
       "gamepad": {
-        "button": 4
+        "button": 9
       },
       "keyboard": "i",
       "off_value": 0,
       "on_value": 255
     },
+    "steer_x": {
+      "type": "axis",
+      "gamepad": {
+        "axis": 0,
+        "invert": false,
+        "deadzone": 0.15
+      },
+      "keyboard": {
+        "positive": "right",
+        "negative": "left",
+        "rate": 8
+      },
+      "expo": 0.0
+    },
     "armed": {
       "type": "button",
       "gamepad": {
-        "button": 7
+        "button": 6
       },
       "keyboard": "a",
       "off_value": 0,

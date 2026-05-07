@@ -283,6 +283,7 @@ class GUI:
         self.font_small = pygame.font.SysFont("monospace", 12)
         self.theme = cfg["ui"]["theme"]
         self.log = deque(maxlen=6)
+        self.drive_mode_btn_rect = None
 
     def _c(self, name):
         return self.theme.get(name, [255, 255, 255])
@@ -326,7 +327,7 @@ class GUI:
     def add_log(self, msg):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False):
+    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False, weapon_state="safe", arcade_mode=False):
         sw, sh = self.screen.get_size()
         self.screen.fill(self._c("bg"))
         lm = int(0.025 * sw)
@@ -350,11 +351,11 @@ class GUI:
         self._hline(int(0.15 * sh))
 
         # ── Motor bars ──────────────────────────────────────────────────────
-        bar_x = int(0.10 * sw)
-        bar_w = int(0.37 * sw)
-        bar_h = max(20, int(0.065 * sh))
-        bar1_y = int(0.225 * sh)
-        bar2_y = int(0.40 * sh)
+        bar_h  = max(18, int(0.06 * sh))
+        bar_x  = int(0.10 * sw)
+        bar_w  = int(0.37 * sw)
+        bar1_y = int(0.215 * sh)
+        bar2_y = int(0.345 * sh)
 
         self._bar(bar_x, bar1_y, bar_w, bar_h,
                   values.get("motor_left", 127), 127, 0, 255, "LEFT MOTOR")
@@ -366,18 +367,17 @@ class GUI:
         ind_w   = int(0.21 * sw)
         ind_x2  = int(0.755 * sw)
         ind_h   = bar_h
+        gap     = max(8, int(0.018 * sh))
 
-        weapon_on   = values.get("weapon", 0) > 127
-        weapon_rev  = values.get("weapon_rev", 0) > 127
         failsafe_on = values.get("failsafe", 0) > 127
 
-        w_color = "danger" if weapon_rev else ("warning" if weapon_on else "panel")
-        w_txt   = "WEAPON ATTACK" if weapon_rev else ("WEAPON IDLE" if weapon_on else "WEAPON SAFE")
+        w_color = {"safe": "panel", "idle": "warning", "attack": "danger"}[weapon_state]
+        w_txt   = {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK"}[weapon_state]
         self._ind(w_color, (panel_x, bar1_y, ind_w, ind_h), w_txt)
 
-        f_txt = "FAILSAFE ACTIVE" if failsafe_on else "NORMAL"
         self._ind("danger" if failsafe_on else "panel",
-                  (panel_x, bar2_y, ind_w, ind_h), f_txt)
+                  (panel_x, bar2_y, ind_w, ind_h),
+                  "FAILSAFE ACTIVE" if failsafe_on else "NORMAL")
 
         self._ind("warning" if drive_inverted else "panel",
                   (ind_x2, bar1_y, ind_w, ind_h),
@@ -387,8 +387,16 @@ class GUI:
                   (ind_x2, bar2_y, ind_w, ind_h),
                   "ARMED" if armed else "DISARMED")
 
+        # Drive mode toggle button — full right-panel width, clickable
+        ind3_y   = bar2_y + ind_h + gap
+        btn_rect = pygame.Rect(panel_x, ind3_y, ind_x2 + ind_w - panel_x, ind_h)
+        self.drive_mode_btn_rect = btn_rect
+        self._ind("accent" if arcade_mode else "panel", btn_rect,
+                  "★ ARCADE DRIVE" if arcade_mode else "  TANK DRIVE")
+        pygame.draw.rect(self.screen, self._c("accent"), btn_rect, 1, border_radius=4)
+
         # ── Stats ────────────────────────────────────────────────────────────
-        stats_y = int(0.49 * sh)
+        stats_y = ind3_y + ind_h + gap
         hz = link.packet_count / (runtime_ms / 1000.0) if runtime_ms > 0 else 0
         self._txt(
             f"Pkts: {link.packet_count}  |  Rate: {hz:.1f} Hz  |  Idle: {link.idle_ms} ms",
@@ -396,35 +404,37 @@ class GUI:
         )
 
         # ── Bottom — event log (left) | controls (right) ────────────────────
-        sep_y = int(0.535 * sh)
+        sep_y = stats_y + max(16, int(0.04 * sh))
         mid_x = sw // 2
         self._hline(sep_y)
         pygame.draw.line(self.screen, self._c("panel"),
                          (mid_x, sep_y), (mid_x, sh - lm), 1)
 
-        col_title_y = int(0.558 * sh)
-        col_start_y = int(0.595 * sh)
-        col_line_h  = max(14, int(0.034 * sh))
+        col_title_y = sep_y + max(8, int(0.025 * sh))
+        col_start_y = col_title_y + max(16, int(0.04 * sh))
+        col_line_h  = max(13, int(0.034 * sh))
         col2_x      = mid_x + lm
 
-        # Event log
+        # Event log — clipped to left column so text never bleeds into controls
         self._txt("EVENT LOG", "accent", (lm, col_title_y))
+        self.screen.set_clip(pygame.Rect(lm, col_start_y, mid_x - lm * 2, sh - col_start_y))
         ly = col_start_y
         for entry in self.log:
             self._txt(entry, "text", (lm, ly), small=True)
             ly += col_line_h
+        self.screen.set_clip(None)
 
         # Controls
         self._txt("CONTROLS", "accent", (col2_x, col_title_y))
         ctrl_lines = [
-            "L-Stick / W-S    = Left drive",
-            "R-Stick / UP-DN  = Right drive",
+            "L-Stick Y / W-S  = Forward",
+            "R-Stick Y / UP-DN = Right (tank)",
+            "L-Stick X / L-R  = Steer (arcade)",
             "RB / SPACE       = Weapon idle",
             "RT / LSHIFT      = Weapon rev",
             "LB / I           = Drive invert",
             "Start / A        = Arm toggle",
             "B  / F           = FAILSAFE",
-            "ESC              = Exit",
         ]
         cy = col_start_y
         for line in ctrl_lines:
@@ -541,6 +551,9 @@ def main():
     prev_invert_raw = False
     armed = False
     prev_arm_raw = False
+    weapon_state    = "safe"   # safe | idle | attack
+    prev_weapon_btn = False
+    arcade_mode     = False
 
     while running:
         now = pygame.time.get_ticks()
@@ -552,6 +565,10 @@ def main():
                 running = False
             if event.type == pygame.VIDEORESIZE:
                 gui.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if gui.drive_mode_btn_rect and gui.drive_mode_btn_rect.collidepoint(event.pos):
+                    arcade_mode = not arcade_mode
+                    gui.add_log(f"Drive mode: {'ARCADE' if arcade_mode else 'TANK'}")
 
             msg = mapper.handle_event(event)
             if msg:
@@ -566,6 +583,15 @@ def main():
                 values[name] = mapper.read_axis(name, keys)
             else:
                 values[name] = mapper.read_button(name, keys)
+
+        # Arcade drive mixing: left stick Y = forward, left stick X = turn
+        if arcade_mode:
+            center    = cfg["packet"]["center"]
+            rng_min, rng_max = cfg["packet"]["range"]
+            fwd  = values.get("motor_left", center) - center
+            turn = values.get("steer_x",    center) - center
+            values["motor_left"]  = max(rng_min, min(rng_max, center + fwd + turn))
+            values["motor_right"] = max(rng_min, min(rng_max, center + fwd - turn))
 
         # Drive invert toggle — rising edge detection
         invert_raw = values.get("drive_invert", 0) > 127
@@ -608,16 +634,23 @@ def main():
             values["weapon"] = 0
             values["weapon_rev"] = 0
 
-        # Weapon logic: off=0, idle=64, attack=255
-        weapon_base = values.get("weapon", 0)
-        weapon_rev = values.get("weapon_rev", 0)
+        # Weapon state machine:
+        #   RB toggles idle on/off (rising edge); RT held while idle → attack
+        weapon_btn     = values.get("weapon", 0) > 127
+        weapon_rev_btn = values.get("weapon_rev", 0) > 127
 
-        if weapon_base == 0:
-            weapon_byte = 0
-        elif weapon_rev > 127:
-            weapon_byte = 255
-        else:
-            weapon_byte = 64
+        if not armed:
+            weapon_state = "safe"
+        elif weapon_btn and not prev_weapon_btn:
+            # RB rising edge: toggle between safe and idle; cancel attack too
+            weapon_state = "safe" if weapon_state != "safe" else "idle"
+        elif weapon_state == "idle" and weapon_rev_btn:
+            weapon_state = "attack"
+        elif weapon_state == "attack" and not weapon_rev_btn:
+            weapon_state = "idle"
+
+        prev_weapon_btn = weapon_btn
+        weapon_byte = {"safe": 0, "idle": 64, "attack": 255}[weapon_state]
 
         packet = bytes([
             values.get("motor_left", 127),
@@ -640,7 +673,7 @@ def main():
 
         # Draw
         elapsed = now - start_time
-        gui.draw(link, mapper, values, elapsed, drive_inverted, armed)
+        gui.draw(link, mapper, values, elapsed, drive_inverted, armed, weapon_state, arcade_mode)
         gui.clock.tick(rate_hz)
 
     pygame.quit()
