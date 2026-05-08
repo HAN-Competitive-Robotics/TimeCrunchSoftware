@@ -12,15 +12,4 @@ config ESB_PTX_APP_LOG_LEVEL
 	int "Log level for the ESB PTX sample"
 	default 4
 
-config DONGLE_TELEMETRY
-	bool "Enable RF telemetry via ACK payload"
-	default n
-	help
-	  Switches ESB to dynamic-payload mode and enables ACK on every packet.
-	  ACK payloads received from the robot are forwarded over USB CDC as
-	  17-byte frames: 0x54 ('T') + 16 bytes (4 IEEE-754 LE floats:
-	  temp_left, temp_right, temp_weapon, weapon_rpm).
-	  Pair with CONFIG_ROBOT_TELEMETRY on the robot.
-	  Disable for competition builds — zero overhead when off.
-
 endmenu

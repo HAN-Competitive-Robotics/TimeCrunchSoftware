@@ -10,16 +10,6 @@ static volatile bool g_ready = true;
 
 static struct esb_payload rx_payload;
 
-#ifdef CONFIG_DONGLE_TELEMETRY
-K_MSGQ_DEFINE(s_telem_msgq, ESB_TELEM_LEN, 4, 4);
-
-int esb_telem_try_get(uint8_t *buf, size_t len)
-{
-    if (len < ESB_TELEM_LEN) return -EINVAL;
-    return k_msgq_get(&s_telem_msgq, buf, K_NO_WAIT);
-}
-#endif
-
 static void event_handler(struct esb_evt const *event)
 {
     switch (event->evt_id)
@@ -38,16 +28,10 @@ static void event_handler(struct esb_evt const *event)
     case ESB_EVENT_RX_RECEIVED:
         while (esb_read_rx_payload(&rx_payload) == 0)
         {
-#ifdef CONFIG_DONGLE_TELEMETRY
-            if (rx_payload.length == ESB_TELEM_LEN) {
-                k_msgq_put(&s_telem_msgq, rx_payload.data, K_NO_WAIT);
-            }
-#else
-            LOG_DBG("ESB RX len %d: %02x %02x %02x %02x %02x %02x %02x %02x",
+            LOG_DBG("ESB RX len %d: %02x %02x %02x %02x",
                     rx_payload.length,
-                    rx_payload.data[0], rx_payload.data[1], rx_payload.data[2], rx_payload.data[3],
-                    rx_payload.data[4], rx_payload.data[5], rx_payload.data[6], rx_payload.data[7]);
-#endif
+                    rx_payload.data[0], rx_payload.data[1],
+                    rx_payload.data[2], rx_payload.data[3]);
         }
         break;
 
@@ -60,26 +44,19 @@ int esb_radio_init(void)
 {
     int err;
 
-    /* Default demo addresses (fine for bring-up; change for real products). */
     uint8_t base_addr_0[4] = {0x4E, 0x4F, 0x44, 0x45}; // "NODE"
     uint8_t base_addr_1[4] = {0xC2, 0xC2, 0xC2, 0xC2};
-    uint8_t addr_prefix[8] = {0x31, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8}; // 0x31 is ASCII 1 -> Full address is NODE1
+    uint8_t addr_prefix[8] = {0x31, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8};
 
     struct esb_config config = ESB_DEFAULT_CONFIG;
-
-#ifdef CONFIG_DONGLE_TELEMETRY
-    config.protocol = ESB_PROTOCOL_ESB_DPL;
-    config.selective_auto_ack = false;
-#else
-    config.protocol = ESB_PROTOCOL_ESB;
+    config.protocol          = ESB_PROTOCOL_ESB;
     config.selective_auto_ack = true;
-#endif
-    config.retransmit_delay = 600;
-    config.retransmit_count = 0;
-    config.bitrate = ESB_BITRATE_2MBPS;
-    config.event_handler = event_handler;
-    config.mode = ESB_MODE_PTX;
-    config.payload_length = 4;
+    config.retransmit_delay  = 600;
+    config.retransmit_count  = 0;
+    config.bitrate           = ESB_BITRATE_2MBPS;
+    config.event_handler     = event_handler;
+    config.mode              = ESB_MODE_PTX;
+    config.payload_length    = 4;
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING))
     {
         config.use_fast_ramp_up = true;
@@ -128,9 +105,9 @@ int esb_radio_init(void)
 struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uint8_t weaponEn, uint8_t failsafe)
 {
     struct esb_payload pl = {0};
-    pl.pipe = 0;
-    pl.length = 4;
-    pl.noack = !IS_ENABLED(CONFIG_DONGLE_TELEMETRY);
+    pl.pipe    = 0;
+    pl.length  = 4;
+    pl.noack   = true;
     pl.data[0] = motor1;
     pl.data[1] = motor2;
     pl.data[2] = weaponEn;
@@ -148,7 +125,7 @@ int esb_radio_send(struct esb_payload *pl)
     int err = esb_write_payload(pl);
     if (err == 0)
     {
-        g_ready = false; // only clear when queued successfully
+        g_ready = false;
     }
     return err;
 }

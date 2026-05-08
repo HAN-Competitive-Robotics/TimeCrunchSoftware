@@ -210,16 +210,6 @@ int main(void)
 			usb_parse_available();
 		}
 
-#ifdef CONFIG_DONGLE_TELEMETRY
-		{
-			uint8_t frame[1 + ESB_TELEM_LEN];
-			frame[0] = 'T';
-			if (esb_telem_try_get(&frame[1], ESB_TELEM_LEN) == 0) {
-				usb_cdc_write(frame, sizeof(frame));
-			}
-		}
-#endif
-
 		static int led_ticks;
 		if (++led_ticks >= 50) {
 			led_ticks = 0;

@@ -14,8 +14,9 @@ static const char *TAG = "MOTOR";
 #define MCPWM_RESOLUTION_HZ  1000000   // 1 MHz -> 1 tick = 1 us
 #define MCPWM_PERIOD_TICKS   20000     // 20 ms period -> 50 Hz
 
-#define PWM_TICKS_MIN  ((uint32_t)(0.05f * MCPWM_PERIOD_TICKS))  // 1000 us (throttle -100)
-#define PWM_TICKS_MAX  ((uint32_t)(0.10f * MCPWM_PERIOD_TICKS))  // 2000 us (throttle +100)
+#define PWM_TICKS_MIN     ((uint32_t)(0.05f  * MCPWM_PERIOD_TICKS))  // 1000 us (throttle -100, full brake)
+#define PWM_TICKS_MAX     ((uint32_t)(0.10f  * MCPWM_PERIOD_TICKS))  // 2000 us (throttle +100, full forward)
+#define PWM_TICKS_NEUTRAL ((uint32_t)(0.075f * MCPWM_PERIOD_TICKS))  // 1500 us (throttle 0, neutral — ESC arms here)
 
 static mcpwm_cmpr_handle_t s_comparators[MOTOR_COUNT];
 
@@ -77,7 +78,7 @@ void motor_driver_init(void)
             .flags.update_cmp_on_tez = true,
         };
         ESP_ERROR_CHECK(mcpwm_new_comparator(oper, &cmp_config, &s_comparators[i]));
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(s_comparators[i], PWM_TICKS_MIN));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(s_comparators[i], PWM_TICKS_NEUTRAL));
 
         mcpwm_gen_handle_t gen;
         mcpwm_generator_config_t gen_config = {
