@@ -8,13 +8,10 @@ Edit config.json to change controls without touching code.
 import argparse
 import json
 import os
-import struct
 import sys
 import time
 from collections import deque
 from pathlib import Path
-
-TELEM_FRAME_LEN = 17  # 'T' (1 byte) + 4x float32 LE (16 bytes)
 
 # ---------------------------------------------------------------------------
 # Pygame & serial are external dependencies
@@ -49,15 +46,24 @@ def load_config(path=CONFIG_PATH):
 # Serial helpers
 # ---------------------------------------------------------------------------
 def find_dongle_port():
-    """Auto-detect the nRF52840 dongle CDC serial port."""
+    """Auto-detect the nRF52840 dongle data CDC port.
+
+    The dongle exposes two CDC ACM interfaces: interface 0 is the Zephyr
+    log/shell port, interface 1 is the application data port.  On macOS
+    they appear as sequential usbmodem numbers (e.g. 1201 then 1203).
+    We want the last (highest-numbered) port.
+    """
     import glob
 
-    # macOS
-    ports = glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/tty.usbmodem*")
-    # Linux
-    ports += glob.glob("/dev/ttyACM*")
+    # macOS — sort so the highest-numbered (data) port is last
+    ports = sorted(glob.glob("/dev/cu.usbmodem*"))
     if ports:
-        return ports[0]
+        return ports[-1]
+
+    # Linux — ttyACM0 = log, ttyACM1 = data
+    linux = sorted(glob.glob("/dev/ttyACM*"))
+    if linux:
+        return linux[-1]
 
     # Windows / generic fallback by description
     for p in serial.tools.list_ports.comports():
@@ -77,7 +83,6 @@ class SerialLink:
         self.packet_count = 0
         self.last_ok = 0
         self.state = "searching"  # searching | connected | lost
-        self.last_telem = None
 
     def _try_open(self):
         port = self.cfg["serial"]["port"]
@@ -118,22 +123,6 @@ class SerialLink:
             self.ser = None
             self.state = "lost"
             return False
-
-    def read_telemetry(self):
-        if self.ser is None:
-            return
-        try:
-            while self.ser.in_waiting >= TELEM_FRAME_LEN:
-                hdr = self.ser.read(1)
-                if hdr == b'T':
-                    data = self.ser.read(TELEM_FRAME_LEN - 1)
-                    if len(data) == TELEM_FRAME_LEN - 1:
-                        self.last_telem = struct.unpack('<ffff', data)
-                    return
-        except serial.SerialException:
-            self.ser.close()
-            self.ser = None
-            self.state = "lost"
 
     @property
     def connected(self):
@@ -360,7 +349,7 @@ class GUI:
     def add_log(self, msg):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
-    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False, weapon_state="safe", arcade_mode=False, telemetry=None):
+    def draw(self, link, mapper, values, runtime_ms, drive_inverted=False, armed=False, weapon_state="safe", arcade_mode=False):
         sw, sh = self.screen.get_size()
         self.screen.fill(self._c("bg"))
         lm = int(0.025 * sw)
@@ -440,18 +429,8 @@ class GUI:
             "text", (lm, stats_y), small=True,
         )
 
-        telem_row_h = 0
-        if telemetry:
-            tl, tr, tw, rpm = telemetry
-            telem_y = stats_y + max(13, int(0.034 * sh))
-            self._txt(
-                f"RF TELEM  L:{tl:.1f}°C  R:{tr:.1f}°C  W:{tw:.1f}°C  RPM:{rpm:.0f}",
-                "good", (lm, telem_y), small=True,
-            )
-            telem_row_h = max(13, int(0.034 * sh))
-
         # ── Bottom — event log (left) | controls (right) ────────────────────
-        sep_y = stats_y + max(16, int(0.04 * sh)) + telem_row_h
+        sep_y = stats_y + max(16, int(0.04 * sh))
         mid_x = sw // 2
         self._hline(sep_y)
         pygame.draw.line(self.screen, self._c("panel"),
@@ -716,13 +695,9 @@ def main():
                     gui.add_log("Serial write failed")
             last_send = now
 
-        # Read telemetry (non-blocking; only available in test builds)
-        link.read_telemetry()
-
         # Draw
         elapsed = now - start_time
-        gui.draw(link, mapper, values, elapsed, drive_inverted, armed, weapon_state, arcade_mode,
-                 telemetry=link.last_telem)
+        gui.draw(link, mapper, values, elapsed, drive_inverted, armed, weapon_state, arcade_mode)
         gui.clock.tick(rate_hz)
 
     pygame.quit()
