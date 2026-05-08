@@ -10,11 +10,10 @@ import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT        = Path(__file__).resolve().parent.parent
 RADIO_DONGLE_DIR = REPO_ROOT / "radio-dongle"
-BOARD = "nrf52840dongle/nrf52840"
-BUILD_DIR = RADIO_DONGLE_DIR / "build"
-BUILD_DIR_TELEM = RADIO_DONGLE_DIR / "build_telemetry"
+BOARD            = "nrf52840dongle/nrf52840"
+BUILD_DIR        = RADIO_DONGLE_DIR / "build"
 
 
 def info(msg):
@@ -27,12 +26,10 @@ def error(msg):
 
 
 def find_west():
-    """Try to find the west executable."""
     west = shutil.which("west")
     if west:
         return west
 
-    # macOS common location from ncs.env
     env_file = RADIO_DONGLE_DIR / "local" / "ncs.env"
     if env_file.exists():
         ncs_toolchain = None
@@ -41,7 +38,6 @@ def find_west():
                 ncs_toolchain = line.split("=", 1)[1].strip().strip('"')
         if ncs_toolchain:
             import glob
-            # Search for west in common toolchain locations
             search_patterns = [
                 f"{ncs_toolchain}/bin/west",
                 f"{ncs_toolchain}/usr/bin/west",
@@ -60,7 +56,6 @@ def find_west():
 
 
 def find_nrfutil():
-    """Try to find the nrfutil executable."""
     nrfutil = shutil.which("nrfutil")
     if nrfutil:
         return nrfutil
@@ -80,7 +75,6 @@ def find_nrfutil():
 
 
 def setup_env():
-    """Set up environment variables for west build."""
     env = os.environ.copy()
 
     env_file = RADIO_DONGLE_DIR / "local" / "ncs.env"
@@ -97,8 +91,8 @@ def setup_env():
             env["ZEPHYR_BASE"] = str(Path(ncs_sdk) / "zephyr")
         if ncs_toolchain:
             env["ZEPHYR_SDK_INSTALL_DIR"] = str(Path(ncs_toolchain) / "opt" / "zephyr-sdk")
-            env["CMAKE_PREFIX_PATH"] = str(Path(ncs_toolchain) / "opt" / "zephyr-sdk")
-            env["NRFUTIL_HOME"] = str(Path(ncs_toolchain) / "nrfutil" / "home")
+            env["CMAKE_PREFIX_PATH"]       = str(Path(ncs_toolchain) / "opt" / "zephyr-sdk")
+            env["NRFUTIL_HOME"]            = str(Path(ncs_toolchain) / "nrfutil" / "home")
             env["PATH"] = (
                 str(Path(ncs_toolchain) / "bin")
                 + os.pathsep
@@ -118,38 +112,32 @@ def setup_env():
     return env
 
 
-def build(clean=False, telemetry=False):
+def build(clean=False):
     west = find_west()
-    env = setup_env()
+    env  = setup_env()
 
-    build_dir = BUILD_DIR_TELEM if telemetry else BUILD_DIR
-
-    if clean and build_dir.exists():
+    if clean and BUILD_DIR.exists():
         info("Removing build directory...")
-        shutil.rmtree(build_dir)
+        shutil.rmtree(BUILD_DIR)
 
-    info(f"Building for {BOARD} ({'TELEMETRY' if telemetry else 'competition'} build)...")
+    info(f"Building for {BOARD}...")
     cmd = [
-        west,
-        "build",
+        west, "build",
         "--board", BOARD,
-        "--build-dir", str(build_dir),
+        "--build-dir", str(BUILD_DIR),
         "--no-sysbuild",
         str(RADIO_DONGLE_DIR),
     ]
-    if telemetry:
-        cmd += ["--", "-DCONFIG_DONGLE_TELEMETRY=y"]
     subprocess.run(cmd, env=env, check=True)
-    info(f"Done. Artifacts in {build_dir}")
+    info(f"Done. Artifacts in {BUILD_DIR}")
 
 
-def flash(key_file=None, telemetry=False):
+def flash(key_file=None):
     nrfutil = find_nrfutil()
-    env = setup_env()
+    env      = setup_env()
 
-    build_dir = BUILD_DIR_TELEM if telemetry else BUILD_DIR
-    hex_file = build_dir / "zephyr" / "zephyr.hex"
-    zip_file = build_dir / "dfu_package.zip"
+    hex_file           = BUILD_DIR / "zephyr" / "zephyr.hex"
+    zip_file           = BUILD_DIR / "dfu_package.zip"
     local_nrfutil_home = RADIO_DONGLE_DIR / "local" / "nrfutil-home"
 
     if not hex_file.exists():
@@ -157,7 +145,6 @@ def flash(key_file=None, telemetry=False):
 
     info("Flashing via USB DFU (put dongle in bootloader mode first)...")
 
-    # Install nrf5sdk-tools locally on first run
     nrf5sdk_tool = local_nrfutil_home / "bin" / "nrfutil-nrf5sdk-tools"
     if not nrf5sdk_tool.exists():
         info("Installing nrf5sdk-tools (one-time)...")
@@ -173,29 +160,21 @@ def flash(key_file=None, telemetry=False):
 
     info("Packaging firmware...")
     pkg_cmd = [
-        nrfutil,
-        "nrf5sdk-tools",
-        "pkg",
-        "generate",
-        "--hw-version",
-        "52",
-        "--sd-req",
-        "0x00",
-        "--application",
-        str(hex_file),
-        "--application-version",
-        "1",
+        nrfutil, "nrf5sdk-tools", "pkg", "generate",
+        "--hw-version", "52",
+        "--sd-req", "0x00",
+        "--application", str(hex_file),
+        "--application-version", "1",
     ]
     if key_file:
         pkg_cmd += ["--key-file", str(key_file)]
-    pkg_cmd += [str(zip_file)]
+    pkg_cmd.append(str(zip_file))
     subprocess.run(pkg_cmd, env=env, check=True)
 
     info("Programming...")
     subprocess.run(
         [nrfutil, "device", "program", "--firmware", str(zip_file), "--traits", "nordicDfu"],
-        env=env,
-        check=True,
+        env=env, check=True,
     )
     info("Flash complete.")
 
@@ -204,17 +183,15 @@ def main():
     parser = argparse.ArgumentParser(description="Build / flash the radio dongle")
     parser.add_argument("action", nargs="?", choices=["build", "flash", "clean"], default="build")
     parser.add_argument("--key-file", type=Path, default=None, help="PEM private key for signing DFU package")
-    parser.add_argument("--telemetry", action="store_true",
-                        help="Enable RF telemetry build (uses build_telemetry/ directory)")
     args = parser.parse_args()
 
     if args.action == "clean":
-        build(clean=True, telemetry=args.telemetry)
+        build(clean=True)
     elif args.action == "flash":
-        build(telemetry=args.telemetry)
-        flash(key_file=args.key_file, telemetry=args.telemetry)
+        build()
+        flash(key_file=args.key_file)
     else:
-        build(telemetry=args.telemetry)
+        build()
 
 
 if __name__ == "__main__":

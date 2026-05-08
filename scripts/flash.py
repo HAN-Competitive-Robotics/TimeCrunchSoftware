@@ -5,16 +5,13 @@ Interactive menu when run without arguments:
     python scripts/flash.py
 
 Direct CLI usage:
-    python scripts/flash.py --both                    # flash robot + dongle + monitor
-    python scripts/flash.py --both --telemetry        # telemetry build (test mode)
-    python scripts/flash.py --robot                   # flash ESP32 only + monitor
-    python scripts/flash.py --dongle                  # flash nRF52840 dongle only
-    python scripts/flash.py --build-robot             # build ESP32 only
-    python scripts/flash.py --robot --no-monitor /dev/ttyUSB0
-
---telemetry builds use separate build directories (robot/build_telemetry/,
-radio-dongle/build_telemetry/) so switching between competition and test
-builds does not require a full rebuild each time.
+    python scripts/flash.py --robot                     # flash ESP32 + monitor
+    python scripts/flash.py --dongle                    # flash nRF52840 dongle
+    python scripts/flash.py --both                      # flash robot + dongle + monitor
+    python scripts/flash.py --weapon-calibrate          # flash weapon-motor calibration
+    python scripts/flash.py --weapon-test               # flash weapon-motor test
+    python scripts/flash.py --build-robot               # build ESP32 only (no flash)
+    python scripts/flash.py --robot --no-monitor        # flash without opening monitor
 """
 
 import argparse
@@ -25,8 +22,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-ROBOT_DIR = REPO_ROOT / "robot"
+REPO_ROOT        = Path(__file__).resolve().parent.parent
+ROBOT_DIR        = REPO_ROOT / "robot"
+WEAPON_MOTOR_DIR = REPO_ROOT / "weapon-motor"
 
 
 def info(msg):
@@ -94,7 +92,7 @@ def check_port_available(port):
         return True
 
 
-def flash_esp32(port, monitor=True, telemetry=False):
+def _idf_path():
     idf_path = Path.home() / "esp" / "esp-idf"
     if platform.system() == "Windows":
         if not any((idf_path / f).exists() for f in ("export.bat", "export.ps1")):
@@ -102,49 +100,86 @@ def flash_esp32(port, monitor=True, telemetry=False):
     else:
         if not (idf_path / "export.sh").exists():
             error(f"ESP-IDF not found at {idf_path}. Install it or set IDF_PATH.")
+    return idf_path
 
-    build_dir = "build_telemetry" if telemetry else "build"
-    info(f"Flashing ESP32 receiver on {port} ({'TELEMETRY' if telemetry else 'competition'} build)...")
+
+def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True, monitor=True):
+    """Run idf.py flash (and optionally monitor) for any ESP-IDF project."""
     env = os.environ.copy()
     env["IDF_PATH"] = str(idf_path)
-    if telemetry:
-        env["SDKCONFIG_DEFAULTS"] = "sdkconfig.defaults;sdkconfig.telemetry"
 
     if platform.system() == "Windows":
         idf_py = shutil.which("idf.py")
         if not idf_py:
             error("idf.py not found in PATH.")
-        subprocess.run([sys.executable, idf_py, "-B", build_dir, "-p", port, "flash"],
-                       cwd=ROBOT_DIR, env=env, check=True)
+        cmd = [sys.executable, idf_py, "-B", build_dir]
+        if extra_cmake:
+            cmd += extra_cmake.split()
+        if flash:
+            cmd += ["-p", port, "flash"]
+        subprocess.run(cmd, cwd=project_dir, env=env, check=True)
         if monitor:
-            info("Opening ESP32 monitor (Ctrl+] to exit)...")
+            info("Opening monitor (Ctrl+] to exit)...")
             subprocess.run([sys.executable, idf_py, "-p", port, "monitor"],
-                           cwd=ROBOT_DIR, env=env, check=True)
+                           cwd=project_dir, env=env, check=True)
     else:
-        shell_cmd = f'source "{idf_path}/export.sh" && idf.py -B {build_dir} -p "{port}" flash'
-        subprocess.run(["bash", "-c", shell_cmd], cwd=ROBOT_DIR, env=env, check=True)
+        cmake_args = f" {extra_cmake}" if extra_cmake else ""
+        if flash:
+            shell_cmd = (
+                f'source "{idf_path}/export.sh" && '
+                f'idf.py -B {build_dir}{cmake_args} -p "{port}" flash'
+            )
+            subprocess.run(["bash", "-c", shell_cmd], cwd=project_dir, env=env, check=True)
         if monitor:
-            info("Opening ESP32 monitor (Ctrl+] to exit)...")
+            info("Opening monitor (Ctrl+] to exit)...")
             shell_cmd = f'source "{idf_path}/export.sh" && idf.py -p "{port}" monitor'
-            subprocess.run(["bash", "-c", shell_cmd], cwd=ROBOT_DIR, env=env, check=True)
+            subprocess.run(["bash", "-c", shell_cmd], cwd=project_dir, env=env, check=True)
 
 
-def flash_dongle(telemetry=False):
-    info(f"Building + flashing nRF52840 dongle ({'TELEMETRY' if telemetry else 'competition'} build)...")
+def flash_robot(port, monitor=True):
+    idf_path = _idf_path()
+    info(f"Flashing robot (ESP32) on {port}...")
+    _run_idf(ROBOT_DIR, idf_path, "build", port, monitor=monitor)
+
+
+def build_robot_only():
+    idf_path = _idf_path()
+    info("Building robot (ESP32)...")
+    env = os.environ.copy()
+    env["IDF_PATH"] = str(idf_path)
+    if platform.system() == "Windows":
+        idf_py = shutil.which("idf.py")
+        subprocess.run([sys.executable, idf_py, "-B", "build", "build"],
+                       cwd=ROBOT_DIR, env=env, check=True)
+    else:
+        shell_cmd = f'source "{idf_path}/export.sh" && idf.py -B build build'
+        subprocess.run(["bash", "-c", shell_cmd], cwd=ROBOT_DIR, env=env, check=True)
+
+
+def flash_dongle():
+    info("Building + flashing nRF52840 dongle...")
     build_script = REPO_ROOT / "scripts" / "build-dongle.py"
-    cmd = [sys.executable, str(build_script), "flash"]
-    if telemetry:
-        cmd.append("--telemetry")
-    subprocess.run(cmd, check=True)
+    subprocess.run([sys.executable, str(build_script), "flash"], check=True)
 
 
-def build_dongle_only(telemetry=False):
+def build_dongle_only():
     info("Building nRF52840 dongle...")
     build_script = REPO_ROOT / "scripts" / "build-dongle.py"
-    cmd = [sys.executable, str(build_script), "build"]
-    if telemetry:
-        cmd.append("--telemetry")
-    subprocess.run(cmd, check=True)
+    subprocess.run([sys.executable, str(build_script), "build"], check=True)
+
+
+def flash_weapon_motor(port, mode, monitor=True):
+    """Flash weapon-motor firmware. mode is 'calibrate' or 'test'."""
+    assert mode in ("calibrate", "test")
+    idf_path  = _idf_path()
+    cmake_def = "MODE_CALIBRATE" if mode == "calibrate" else "MODE_TEST"
+    build_dir = f"build_{mode}"
+    info(f"Flashing weapon-motor ({mode.upper()}) on {port}...")
+    _run_idf(
+        WEAPON_MOTOR_DIR, idf_path, build_dir, port,
+        extra_cmake=f"-DWEAPON_MODE={cmake_def}",
+        monitor=monitor,
+    )
 
 
 def find_ports():
@@ -157,14 +192,15 @@ def menu():
     print("=" * 44)
     print("         Battlebot Flash Menu")
     print("=" * 44)
-    print("1. Flash battlebot (ESP32)")
+    print("1. Flash robot (ESP32)")
     print("2. Flash dongle (nRF52840)")
-    print("3. Flash both + monitor       [competition]")
-    print("4. Flash both + monitor       [TELEMETRY]")
-    print("5. Find ports")
-    print("6. Build battlebot only")
-    print("7. Build dongle only")
-    print("8. Exit")
+    print("3. Flash both + monitor")
+    print("4. Flash weapon-motor: CALIBRATE + monitor")
+    print("5. Flash weapon-motor: TEST + monitor")
+    print("6. Find ports")
+    print("7. Build robot only")
+    print("8. Build dongle only")
+    print("9. Exit")
     print("=" * 44)
     print()
 
@@ -180,7 +216,7 @@ def interactive():
                 error("No ESP32 port found. Plug it in or pass the port manually.")
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
-            flash_esp32(port, monitor=True)
+            flash_robot(port, monitor=True)
 
         elif choice == "2":
             flash_dongle()
@@ -191,10 +227,9 @@ def interactive():
                 error("No ESP32 port found. Plug it in or pass the port manually.")
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
-            flash_esp32(port, monitor=False)
+            flash_robot(port, monitor=False)
             flash_dongle()
-            info("Opening ESP32 monitor (Ctrl+] to exit)...")
-            flash_esp32(port, monitor=True)
+            flash_robot(port, monitor=True)
 
         elif choice == "4":
             port = find_esp32_port()
@@ -202,43 +237,49 @@ def interactive():
                 error("No ESP32 port found. Plug it in or pass the port manually.")
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
-            flash_esp32(port, monitor=False, telemetry=True)
-            flash_dongle(telemetry=True)
-            info("Opening ESP32 monitor (Ctrl+] to exit)...")
-            flash_esp32(port, monitor=True, telemetry=True)
+            flash_weapon_motor(port, "calibrate", monitor=True)
 
         elif choice == "5":
-            find_ports()
+            port = find_esp32_port()
+            if not port:
+                error("No ESP32 port found. Plug it in or pass the port manually.")
+            info(f"Using ESP32 port: {port}")
+            check_port_available(port)
+            flash_weapon_motor(port, "test", monitor=True)
 
         elif choice == "6":
-            build_robot_only()
+            find_ports()
 
         elif choice == "7":
-            build_dongle_only()
+            build_robot_only()
 
         elif choice == "8":
+            build_dongle_only()
+
+        elif choice == "9":
             print("Bye.")
             sys.exit(0)
 
         else:
-            print("Invalid choice. Enter 1-8.")
+            print("Invalid choice. Enter 1-9.")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Flash battlebot devices")
     parser.add_argument("port", nargs="?", help="ESP32 serial port (auto-detected if omitted)")
-    parser.add_argument("--robot", action="store_true", help="Flash ESP32 receiver only")
-    parser.add_argument("--dongle", action="store_true", help="Flash nRF52840 dongle only")
-    parser.add_argument("--both", action="store_true", help="Flash both devices (default)")
-    parser.add_argument("--no-monitor", action="store_true", help="Skip opening monitor after flash")
-    parser.add_argument("--find-ports", action="store_true", help="List detected serial ports")
-    parser.add_argument("--build-robot", action="store_true", help="Build ESP32 robot only")
-    parser.add_argument("--telemetry", action="store_true",
-                        help="Enable RF telemetry build (test mode — uses separate build dirs)")
+    parser.add_argument("--robot",             action="store_true", help="Flash ESP32 robot only")
+    parser.add_argument("--dongle",            action="store_true", help="Flash nRF52840 dongle only")
+    parser.add_argument("--both",              action="store_true", help="Flash robot + dongle + monitor")
+    parser.add_argument("--weapon-calibrate",  action="store_true", help="Flash weapon-motor calibration mode")
+    parser.add_argument("--weapon-test",       action="store_true", help="Flash weapon-motor test mode")
+    parser.add_argument("--no-monitor",        action="store_true", help="Skip opening monitor after flash")
+    parser.add_argument("--find-ports",        action="store_true", help="List detected serial ports")
+    parser.add_argument("--build-robot",       action="store_true", help="Build ESP32 robot only (no flash)")
     args = parser.parse_args()
 
-    # If no CLI flags given, drop into interactive menu
-    if not any([args.robot, args.dongle, args.both, args.find_ports, args.build_robot, args.port]):
+    if not any([args.robot, args.dongle, args.both,
+                args.weapon_calibrate, args.weapon_test,
+                args.find_ports, args.build_robot, args.port]):
         interactive()
         return
 
@@ -247,34 +288,40 @@ def main():
         return
 
     if args.build_robot:
-        info("Building ESP32 robot...")
-        robot_idf = ROBOT_DIR / "idf"
-        subprocess.run([str(robot_idf), "build"], cwd=ROBOT_DIR, check=True)
+        build_robot_only()
         return
 
-    # Resolve port if needed
     port = args.port if args.port else find_esp32_port()
 
     if args.dongle:
-        flash_dongle(telemetry=args.telemetry)
+        flash_dongle()
         return
 
     if not port:
         error("No ESP32 port found. Plug it in or pass the port manually.")
 
-    if args.robot:
-        info(f"Using ESP32 port: {port}")
-        check_port_available(port)
-        flash_esp32(port, monitor=not args.no_monitor, telemetry=args.telemetry)
+    check_port_available(port)
+    monitor = not args.no_monitor
+
+    if args.weapon_calibrate:
+        flash_weapon_motor(port, "calibrate", monitor=monitor)
         return
 
-    # Default: --both or just a port argument
+    if args.weapon_test:
+        flash_weapon_motor(port, "test", monitor=monitor)
+        return
+
+    if args.robot:
+        info(f"Using ESP32 port: {port}")
+        flash_robot(port, monitor=monitor)
+        return
+
+    # --both or bare port
     info(f"Using ESP32 port: {port}")
-    check_port_available(port)
-    flash_esp32(port, monitor=False, telemetry=args.telemetry)
-    flash_dongle(telemetry=args.telemetry)
-    if not args.no_monitor:
-        flash_esp32(port, monitor=True, telemetry=args.telemetry)
+    flash_robot(port, monitor=False)
+    flash_dongle()
+    if monitor:
+        flash_robot(port, monitor=True)
 
 
 if __name__ == "__main__":
