@@ -91,7 +91,7 @@ static void handle_message(const uint8_t *msg, size_t len)
 {
 	if (len == 4) {
 		if (!esb_radio_ready()) {
-			LOG_WRN("ESB not ready — packet dropped");
+			LOG_WRN("ESB not ready  packet dropped");
 			return;
 		}
 
@@ -123,7 +123,7 @@ static void usb_parse_available(void)
 		if (msg_len < MSG_MAX) {
 			msg_buf[msg_len++] = b;
 		} else {
-			LOG_ERR("Message too long — discarding");
+			LOG_ERR("Message too long  discarding");
 			msg_len = 0;
 			usb_cdc_write((const uint8_t *)"ERR: msg too long\r\n", 19);
 		}

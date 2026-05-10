@@ -5,7 +5,7 @@
 
 // Open-loop feedforward: percentage throttle applied as baseline when armed.
 // This lets the weapon spin even before KP/KI are tuned. Set to 0 to disable.
-#define WEAPON_FF          50.0f   // 50% baseline — adjust based on your ESC/motor
+#define WEAPON_FF          50.0f   // 50% baseline  adjust based on your ESC/motor
 
 // Closed-loop gains. Tune after step-response test with KP/KI both 0 first.
 // With FF set, the weapon will spin open-loop until gains are dialled in.

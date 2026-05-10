@@ -19,7 +19,7 @@ typedef struct {
     uint8_t weapon_throttle;
     bool    failsafe_active;
     bool    packet_received;
-    bool    hard_failsafe;   /* latches permanently on explicit failsafe — only power cycle clears */
+    bool    hard_failsafe;   /* latches permanently on explicit failsafe  only power cycle clears */
 } robot_state_t;
 
 static QueueHandle_t  state_queue;
@@ -27,13 +27,16 @@ static TaskHandle_t   h_core0 = NULL;
 static TaskHandle_t   h_core1 = NULL;
 static TaskHandle_t   h_temp  = NULL;
 
+/* Center of the 0–255 packet range, per the protocol spec. */
+#define PACKET_CENTER 127
+
 static int map_byte_to_throttle(uint8_t b)
 {
-    return ((int)b - 127) * 100 / 127;
+    return ((int)b - PACKET_CENTER) * 100 / PACKET_CENTER;
 }
 
 /* --------------------------------------------------------------------------
- * Core 0 — Radio receive, drive motors, failsafe
+ * Core 0  Radio receive, drive motors, failsafe
  * -------------------------------------------------------------------------- */
 void task_core0(void *pvParameters)
 {
@@ -80,9 +83,13 @@ void task_core0(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
-                    bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= 90.0f ||
-                                        temp_get_temperature(TEMP_RIGHT_WHEEL) >= 90.0f ||
-                                        temp_get_temperature(TEMP_WEAPON)      >= 90.0f;
+                    /* 90 °C triggers deep-sleep killswitch  10 °C below the per-motor
+                     * throttle cutoff (MOTOR_TEMP_LIMIT_C = 100 °C) so an overheating
+                     * robot shuts down before individual motors are cut one by one. */
+                    #define KILLSWITCH_TEMP_C 90.0f
+                    bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
+                                        temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
+                                        temp_get_temperature(TEMP_WEAPON)      >= KILLSWITCH_TEMP_C;
 
                     if ((failsafe_raw > 127 || temp_critical) && !state.hard_failsafe) {
                         state.hard_failsafe   = true;
@@ -92,9 +99,9 @@ void task_core0(void *pvParameters)
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
                         xQueueOverwrite(state_queue, &state);
                         if (temp_critical)
-                            ESP_LOGW(TAG, "THERMAL CUTOFF — entering deep sleep, power cycle to recover");
+                            ESP_LOGW(TAG, "THERMAL CUTOFF  entering deep sleep, power cycle to recover");
                         else
-                            ESP_LOGW(TAG, "KILLSWITCH — entering deep sleep, power cycle to recover");
+                            ESP_LOGW(TAG, "KILLSWITCH  entering deep sleep, power cycle to recover");
                         vTaskDelay(pdMS_TO_TICKS(200));
                         esp_deep_sleep_start();
                     } else if (!state.hard_failsafe) {
@@ -115,7 +122,7 @@ void task_core0(void *pvParameters)
 
         if (have_packet &&
             (xTaskGetTickCount() - last_packet_tick) >= pdMS_TO_TICKS(500)) {
-            ESP_LOGW(TAG, "Packet timeout — stopping motors");
+            ESP_LOGW(TAG, "Packet timeout  stopping motors");
             motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
             motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
 
@@ -129,7 +136,7 @@ void task_core0(void *pvParameters)
 }
 
 /* --------------------------------------------------------------------------
- * Core 1 — Weapon PI controller (100 Hz)
+ * Core 1  Weapon PI controller (100 Hz)
  * -------------------------------------------------------------------------- */
 void task_core1(void *pvParameters)
 {
@@ -159,7 +166,7 @@ void task_core1(void *pvParameters)
 }
 
 /* --------------------------------------------------------------------------
- * Core 1 — Thermal safety (1 Hz)
+ * Core 1  Thermal safety (1 Hz)
  * -------------------------------------------------------------------------- */
 void task_temp(void *pvParameters)
 {

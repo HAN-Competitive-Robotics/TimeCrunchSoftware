@@ -73,7 +73,9 @@ def check_port_available(port):
         return True
     except serial.SerialException as e:
         err = str(e).lower()
-        if "busy" in err or "access" in err or "permission" in err:
+        # Match any "port busy" wording  macOS raises "Resource temporarily
+        # unavailable" (errno 35) which doesn't contain "busy"/"access"/"permission"
+        if any(k in err for k in ("busy", "access", "permission", "unavailable", "errno 35")):
             info(f"Port {port} is already in use.")
             if platform.system() in ("Darwin", "Linux"):
                 try:

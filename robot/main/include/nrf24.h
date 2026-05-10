@@ -66,9 +66,6 @@ extern SemaphoreHandle_t nrf24_irq_sem;
 esp_err_t nrf24_init(void);
 esp_err_t nrf24_init_irq(void);
 
-void nrf24_ce_high(void);
-void nrf24_ce_low(void);
-
 uint8_t nrf24_get_status(void);
 uint8_t nrf24_read_reg(uint8_t reg);
 

@@ -18,7 +18,7 @@ typedef enum {
 void motor_driver_init(void);
 
 // Set motor throttle. Value must be in range [-100, 100].
-// -100 = 1 ms pulse, 0 = 1.5 ms pulse (neutral), 100 = 2 ms pulse — standard RC ESC.
+// -100 = 1 ms pulse, 0 = 1.5 ms pulse (neutral), 100 = 2 ms pulse  standard RC ESC.
 void motor_set_throttle(motor_t motor, int throttle);
 
 // Check all motor temperatures and cut throttle to 0 on any motor exceeding 100 C.

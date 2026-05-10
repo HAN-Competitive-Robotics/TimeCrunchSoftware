@@ -10,7 +10,7 @@ extern "C" {
 int esb_radio_init(void);
 bool esb_radio_ready(void);
 int esb_radio_send(struct esb_payload *pl);
-struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uint8_t weaponEn, uint8_t failsafe);
+struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uint8_t weapon_en, uint8_t failsafe);
 
 #ifdef __cplusplus
 }

@@ -16,11 +16,11 @@ static const char *TAG = "MOTOR";
 
 #define PWM_TICKS_MIN     ((uint32_t)(0.05f  * MCPWM_PERIOD_TICKS))  // 1000 us (throttle -100, full brake)
 #define PWM_TICKS_MAX     ((uint32_t)(0.10f  * MCPWM_PERIOD_TICKS))  // 2000 us (throttle +100, full forward)
-#define PWM_TICKS_NEUTRAL ((uint32_t)(0.075f * MCPWM_PERIOD_TICKS))  // 1500 us (throttle 0, neutral — ESC arms here)
+#define PWM_TICKS_NEUTRAL ((uint32_t)(0.075f * MCPWM_PERIOD_TICKS))  // 1500 us (throttle 0, neutral  ESC arms here)
 
 static mcpwm_cmpr_handle_t s_comparators[MOTOR_COUNT];
 
-// Persistent thermal cutoff flags — latched on overtemp, cleared with hysteresis.
+// Persistent thermal cutoff flags  latched on overtemp, cleared with hysteresis.
 // Written from task_temp (Core 1), read from task_core0 and task_core1.
 // _Atomic bool gives sequentially consistent loads/stores across both cores.
 static _Atomic bool s_thermal_cutoff[MOTOR_COUNT];
@@ -119,7 +119,7 @@ void motor_safety_check(void)
             atomic_store(&s_thermal_cutoff[m], false);
         }
 
-        // Enforce zero throttle directly — bypass the gate in motor_set_throttle
+        // Enforce zero throttle directly  bypass the gate in motor_set_throttle
         // so task_core0 cannot override us between now and the next safety check.
         if (atomic_load(&s_thermal_cutoff[m])) {
             apply_throttle_direct(m, 0);

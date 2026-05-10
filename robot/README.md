@@ -6,9 +6,9 @@ ESP32 receiver that drives the battlebot over radio.
 
 - **ESP32 DevKit**
 - **nRF24L01+** 2.4 GHz radio (SPI3)
-- **Motor drivers** — 3× RC-style ESCs (left wheel, right wheel, weapon)
-- **BMP280 temperature sensors** — 3× (one per motor)
-- **Optical encoder** — 20-hole wheel on weapon motor
+- **Motor drivers**  3× RC-style ESCs (left wheel, right wheel, weapon)
+- **BMP280 temperature sensors**  3× (one per motor)
+- **Optical encoder**  20-hole wheel on weapon motor
 
 ## Pinout
 
@@ -83,10 +83,10 @@ Receives on the same ESB parameters as the dongle:
 
 ## Safety Behaviors
 
-1. **Packet timeout (500 ms)** — If no valid packet is received for 500 ms, all motors are stopped.
-2. **Failsafe trigger** — When `failsafe > 127`, all motors stop immediately.
-3. **Thermal cutoff** — If any motor temperature exceeds 100 °C, or if a temperature sensor fails (returns NAN), that motor's throttle is set to 0.
-4. **Weapon PI control** — The weapon motor runs closed-loop to a target of 5000 RPM. Tune `WEAPON_KP` and `WEAPON_KI` in `main/include/weapon_controller.h` after a step-response test.
+1. **Packet timeout (500 ms)**  If no valid packet is received for 500 ms, all motors are stopped.
+2. **Failsafe trigger**  When `failsafe > 127`, all motors stop immediately.
+3. **Thermal cutoff**  If any motor temperature exceeds 100 °C, or if a temperature sensor fails (returns NAN), that motor's throttle is set to 0.
+4. **Weapon PI control**  The weapon motor runs closed-loop to a target of 5000 RPM. Tune `WEAPON_KP` and `WEAPON_KI` in `main/include/weapon_controller.h` after a step-response test.
 
 ## Tasks
 

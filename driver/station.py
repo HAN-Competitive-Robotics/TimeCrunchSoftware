@@ -55,12 +55,12 @@ def find_dongle_port():
     """
     import glob
 
-    # macOS — sort so the highest-numbered (data) port is last
+    # macOS  sort so the highest-numbered (data) port is last
     ports = sorted(glob.glob("/dev/cu.usbmodem*"))
     if ports:
         return ports[-1]
 
-    # Linux — ttyACM0 = log, ttyACM1 = data
+    # Linux  ttyACM0 = log, ttyACM1 = data
     linux = sorted(glob.glob("/dev/ttyACM*"))
     if linux:
         return linux[-1]
@@ -334,7 +334,7 @@ class GUI:
             fill_y, fill_h = (vy, cy - vy) if value > center else (cy, vy - cy)
             pygame.draw.rect(self.screen, self._c("accent"),
                              (x + 4, fill_y, w - 8, max(2, fill_h)), border_radius=2)
-        # Single header line above the bar — no text below, avoids overlap with stats
+        # Single header line above the bar  no text below, avoids overlap with stats
         hsurf = self.font_small.render(f"{label}: {value}", True, self._c("text"))
         self.screen.blit(hsurf, (x + (w - hsurf.get_width()) // 2, y - 15))
 
@@ -385,7 +385,7 @@ class GUI:
         self._vbar(bar_x2, bar_y, bar_bw, bar_h,
                    values.get("motor_right", 127), 127, 0, 255, "RIGHT")
 
-        # ── Status indicators — 2×2 grid + drive-mode row ───────────────────
+        # ── Status indicators  2×2 grid + drive-mode row ───────────────────
         panel_x = int(0.525 * sw)
         ind_w   = int(0.21 * sw)
         ind_x2  = int(0.755 * sw)
@@ -414,7 +414,7 @@ class GUI:
                   (ind_x2, ind2_y, ind_w, ind_h),
                   "ARMED" if armed else "DISARMED")
 
-        # Drive mode toggle button — full right-panel width, clickable
+        # Drive mode toggle button  full right-panel width, clickable
         btn_rect = pygame.Rect(panel_x, ind3_y, ind_x2 + ind_w - panel_x, ind_h)
         self.drive_mode_btn_rect = btn_rect
         self._ind("accent" if arcade_mode else "panel", btn_rect,
@@ -429,7 +429,7 @@ class GUI:
             "text", (lm, stats_y), small=True,
         )
 
-        # ── Bottom — event log (left) | controls (right) ────────────────────
+        # ── Bottom  event log (left) | controls (right) ────────────────────
         sep_y = stats_y + max(16, int(0.04 * sh))
         mid_x = sw // 2
         self._hline(sep_y)
@@ -441,7 +441,7 @@ class GUI:
         col_line_h  = max(13, int(0.034 * sh))
         col2_x      = mid_x + lm
 
-        # Event log — clipped to left column so text never bleeds into controls
+        # Event log  clipped to left column so text never bleeds into controls
         self._txt("EVENT LOG", "accent", (lm, col_title_y))
         self.screen.set_clip(pygame.Rect(lm, col_start_y, mid_x - lm * 2, sh - col_start_y))
         ly = col_start_y
@@ -566,7 +566,7 @@ def main():
     if mapper.joystick_name:
         gui.add_log(f"Gamepad: {mapper.joystick_name}")
     else:
-        gui.add_log("No gamepad — keyboard only")
+        gui.add_log("No gamepad  keyboard only")
 
     rate_hz = cfg["serial"]["rate_hz"]
 
@@ -620,14 +620,14 @@ def main():
             values["motor_left"]  = max(rng_min, min(rng_max, center + fwd + turn))
             values["motor_right"] = max(rng_min, min(rng_max, center + fwd - turn))
 
-        # Drive invert toggle — rising edge detection
+        # Drive invert toggle  rising edge detection
         invert_raw = values.get("drive_invert", 0) > 127
         if invert_raw and not prev_invert_raw:
             drive_inverted = not drive_inverted
             gui.add_log(f"Drive invert {'ON' if drive_inverted else 'OFF'}")
         prev_invert_raw = invert_raw
 
-        # Apply drive invert: swap left/right only — forward stays forward
+        # Apply drive invert: swap left/right only  forward stays forward
         if drive_inverted:
             left_raw  = values.get("motor_left",  cfg["packet"]["center"])
             right_raw = values.get("motor_right", cfg["packet"]["center"])
@@ -637,7 +637,7 @@ def main():
         # Killswitch: latch robot permanently; station keeps running
         if values.get("failsafe", 0) > 127 and not killswitch_triggered:
             killswitch_triggered = True
-            gui.add_log("KILLSWITCH — robot latched until power cycle")
+            gui.add_log("KILLSWITCH  robot latched until power cycle")
             hard_packet = bytes([127, 127, 0, 255]) + b"\n"
             link.ensure_connected()
             for _ in range(5):

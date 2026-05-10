@@ -1,5 +1,5 @@
 /*
- * Weapon motor utility firmware — standalone ESP-IDF project.
+ * Weapon motor utility firmware  standalone ESP-IDF project.
  *
  * Use the flash script to pick a mode:
  *   python scripts/flash.py   →  choose option 4 (CALIBRATE) or 5 (TEST)
@@ -9,11 +9,11 @@
  *   idf.py -B build_test      -DWEAPON_MODE=MODE_TEST      flash monitor
  *
  * Modes:
- *   MODE_CALIBRATE  — serial-guided 8BL150 throttle range calibration (do once)
- *   MODE_TEST       — type 0-100 in serial monitor to spin the weapon
+ *   MODE_CALIBRATE   serial-guided 8BL150 throttle range calibration (do once)
+ *   MODE_TEST        type 0-100 in serial monitor to spin the weapon
  */
 #if !defined(MODE_CALIBRATE) && !defined(MODE_TEST)
-#error "No mode set — use flash.py or pass -DWEAPON_MODE=MODE_CALIBRATE / MODE_TEST to idf.py"
+#error "No mode set  use flash.py or pass -DWEAPON_MODE=MODE_CALIBRATE / MODE_TEST to idf.py"
 #endif
 
 #include <stdio.h>
@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "driver/mcpwm_prelude.h"
 #include "driver/uart.h"
+#include "esp_err.h"
 
 /* ---- hardware ------------------------------------------------------------ */
 #define WEAPON_GPIO       21
@@ -29,9 +30,9 @@
 /* ---- PWM timing ---------------------------------------------------------- */
 #define PWM_RESOLUTION_HZ 1000000   /* 1 MHz → 1 tick = 1 µs               */
 #define PWM_PERIOD_TICKS  20000     /* 20 ms period → 50 Hz                 */
-#define PWM_NEUTRAL       1500      /* 1500 µs — ESC neutral / stopped      */
-#define PWM_FULL_FWD      2000      /* 2000 µs — full throttle forward      */
-#define PWM_FULL_BRK      1000      /* 1000 µs — full brake                 */
+#define PWM_NEUTRAL       1500      /* 1500 µs  ESC neutral / stopped      */
+#define PWM_FULL_FWD      2000      /* 2000 µs  full throttle forward      */
+#define PWM_FULL_BRK      1000      /* 1000 µs  full brake                 */
 
 static mcpwm_cmpr_handle_t s_cmp;
 
@@ -93,7 +94,7 @@ static void pwm_set_throttle(int pct)
 /* ---- serial helper ------------------------------------------------------- */
 static void uart_init(void)
 {
-    uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0);
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
 }
 
 static void wait_enter(void)
@@ -139,7 +140,7 @@ void app_main(void)
     pwm_set_us(PWM_FULL_FWD);
     printf("\nSTEP 3  Signal → FULL THROTTLE (%d µs)\n", PWM_FULL_FWD);
     printf("        Press SET on ESC → GREEN flashes 2×, 2 beeps.\n");
-    printf("        (Motor will NOT spin — ESC is in calibration mode.)\n");
+    printf("        (Motor will NOT spin  ESC is in calibration mode.)\n");
     printf("        Press Enter when done...\n");
     wait_enter();
 

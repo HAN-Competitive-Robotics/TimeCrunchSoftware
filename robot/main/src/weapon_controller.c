@@ -45,7 +45,7 @@ void weapon_controller_update(void)
     float output = WEAPON_FF + WEAPON_KP * error + WEAPON_KI * s_integral;
 
     // Weapon ESC must never receive a reverse/brake command.
-    // Clamp to [0, 100] — negative output would spin the disc backward or brake at speed.
+    // Clamp to [0, 100]  negative output would spin the disc backward or brake at speed.
     if (output > 100.0f) output = 100.0f;
     if (output <   0.0f) output =   0.0f;
 

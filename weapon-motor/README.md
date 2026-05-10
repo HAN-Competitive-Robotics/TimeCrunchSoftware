@@ -2,7 +2,7 @@
 
 Standalone ESP-IDF utility firmware for the **Hobbywing QUICRUN 8BL150 G2** ESC + **4268** brushless motor.
 
-Flash this instead of the main robot firmware when you need to calibrate the ESC or test the motor. It has no radio dependency — everything is controlled over USB serial.
+Flash this instead of the main robot firmware when you need to calibrate the ESC or test the motor. It has no radio dependency  everything is controlled over USB serial.
 
 ## Wiring
 
@@ -27,22 +27,22 @@ Open [main/main.c](main/main.c) and set **one** define at the top:
 // #define MODE_TEST     // interactive serial throttle control
 ```
 
-## MODE_CALIBRATE — First use
+## MODE_CALIBRATE  First use
 
 Must be done once before the ESC will arm correctly. The ESC stores the calibration permanently.
 
 1. Set `#define MODE_CALIBRATE` and flash
 2. Open serial monitor (`idf.py monitor`)
-3. Follow the prompts — the firmware walks through each step
+3. Follow the prompts  the firmware walks through each step
 
 What it does:
 - Sets neutral (1500 µs) → you press SET on the ESC
 - Sets full throttle (2000 µs) → you press SET
 - Sets full brake (1000 µs) → you press SET
 
-The motor **will not spin** during calibration — the ESC is only reading signal endpoints, not running.
+The motor **will not spin** during calibration  the ESC is only reading signal endpoints, not running.
 
-## MODE_TEST — Spin the motor
+## MODE_TEST  Spin the motor
 
 After calibration is done.
 

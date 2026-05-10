@@ -102,7 +102,7 @@ int esb_radio_init(void)
     return 0;
 }
 
-struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uint8_t weaponEn, uint8_t failsafe)
+struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uint8_t weapon_en, uint8_t failsafe)
 {
     struct esb_payload pl = {0};
     pl.pipe    = 0;
@@ -110,7 +110,7 @@ struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uin
     pl.noack   = true;
     pl.data[0] = motor1;
     pl.data[1] = motor2;
-    pl.data[2] = weaponEn;
+    pl.data[2] = weapon_en;
     pl.data[3] = failsafe;
     return pl;
 }

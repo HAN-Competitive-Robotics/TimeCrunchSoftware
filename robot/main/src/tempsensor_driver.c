@@ -16,7 +16,7 @@
 #define BMP280_REG_CTRL_MEAS 0xF4
 #define BMP280_REG_TEMP_MSB  0xFA
 
-#define BMP280_CHIP_ID  0x58  // BMP280=0x58, BME280=0x60 — verify against your hardware
+#define BMP280_CHIP_ID  0x58  // BMP280=0x58, BME280=0x60  verify against your hardware
 
 // ctrl_meas: osrs_t=x1 (001), osrs_p=skip (000), mode=normal (11) → 0x23
 #define BMP280_CTRL_VAL 0x23
@@ -76,7 +76,7 @@ static void init_sensor(sensor_cfg_t *s)
         return;
     }
     if (chip_id != BMP280_CHIP_ID) {
-        ESP_LOGW(TAG, "Unexpected chip ID 0x%02X (expected 0x%02X) at bus=%d addr=0x%02X — check sensor type",
+        ESP_LOGW(TAG, "Unexpected chip ID 0x%02X (expected 0x%02X) at bus=%d addr=0x%02X  check sensor type",
                  chip_id, BMP280_CHIP_ID, s->bus, s->addr);
         return;
     }

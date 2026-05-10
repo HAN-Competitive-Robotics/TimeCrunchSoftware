@@ -11,8 +11,8 @@ static const char *TAG = "NRF24";
 static spi_device_handle_t s_spi = NULL;
 SemaphoreHandle_t nrf24_irq_sem = NULL;
 
-void nrf24_ce_high(void) { gpio_set_level(NRF24_PIN_CE, 1); }
-void nrf24_ce_low(void)  { gpio_set_level(NRF24_PIN_CE, 0); }
+static void nrf24_ce_high(void) { gpio_set_level(NRF24_PIN_CE, 1); }
+static void nrf24_ce_low(void)  { gpio_set_level(NRF24_PIN_CE, 0); }
 
 static void csn_high(void) { gpio_set_level(NRF24_PIN_CSN, 1); }
 static void csn_low(void)  { gpio_set_level(NRF24_PIN_CSN, 0); }

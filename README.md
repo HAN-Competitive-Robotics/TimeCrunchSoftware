@@ -126,10 +126,10 @@ Each value is a raw byte (`0–255`). Center for motors is `127`.
 
 ## Safety Features
 
-- **500 ms packet timeout** — If the robot receives no packets for 500 ms, all motors stop automatically.
-- **Killswitch** — Holding the killswitch (gamepad B / keyboard `F`) immediately stops all motors and sends the ESP32 into deep sleep. Only a power cycle recovers the robot.
-- **Thermal cutoff** — If any motor temperature exceeds 100 °C (or a sensor fails / returns NAN), throttle is cut to 0.
-- **Weapon PI controller** — Closed-loop speed control with anti-windup (tune `WEAPON_KP` / `WEAPON_KI` in `weapon_controller.h`).
+- **500 ms packet timeout**  If the robot receives no packets for 500 ms, all motors stop automatically.
+- **Killswitch**  Holding the killswitch (gamepad B / keyboard `F`) immediately stops all motors and sends the ESP32 into deep sleep. Only a power cycle recovers the robot.
+- **Thermal cutoff**  If any motor temperature exceeds 100 °C (or a sensor fails / returns NAN), throttle is cut to 0.
+- **Weapon PI controller**  Closed-loop speed control with anti-windup (tune `WEAPON_KP` / `WEAPON_KI` in `weapon_controller.h`).
 
 ---
 
