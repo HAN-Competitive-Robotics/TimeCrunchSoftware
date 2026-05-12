@@ -107,7 +107,7 @@ struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uin
     struct esb_payload pl = {0};
     pl.pipe    = 0;
     pl.length  = 4;
-    pl.noack   = true;
+    pl.noack   = true; //change
     pl.data[0] = motor1;
     pl.data[1] = motor2;
     pl.data[2] = weapon_en;

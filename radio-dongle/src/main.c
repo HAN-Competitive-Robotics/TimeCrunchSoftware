@@ -91,7 +91,7 @@ static void handle_message(const uint8_t *msg, size_t len)
 {
 	if (len == 4) {
 		if (!esb_radio_ready()) {
-			LOG_WRN("ESB not ready  packet dropped");
+			LOG_WRN("ESB not ready packet dropped");
 			return;
 		}
 

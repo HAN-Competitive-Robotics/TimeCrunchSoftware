@@ -75,17 +75,17 @@ The dongle echoes the first 4 bytes back as confirmation.
 ## Architecture
 
 ```
-┌─────────────┐     UART FIFO      ┌─────────────┐     ring buffer     ┌─────────────┐
-│  USB CDC    │  ───────────────►  │  usb_rx_thread │  ─────────────►  │  usb_rb     │
-│  (host PC)  │                    │  (Zephyr)     │                   │  (512 bytes)│
-└─────────────┘                    └─────────────┘                   └──────┬──────┘
-                                                                           │
-                                                                           ▼
-                                                                    ┌─────────────┐
-                                                                    │ main loop   │
-                                                                    │ parses \n   │
-                                                                    │ → ESB send  │
-                                                                    └─────────────┘
+┌─────────────┐     UART FIFO      ┌────────────────┐     ring buffer     ┌─────────────┐
+│  USB CDC    │  ───────────────►  │  usb_rx_thread │  ─────────────►     │  usb_rb     │
+│  (host PC)  │                    │  (Zephyr)      │                     │  (512 bytes)│
+└─────────────┘                    └────────────────┘                     └──────┬──────┘
+                                                                                 │
+                                                                                 ▼
+                                                                          ┌─────────────┐
+                                                                          │ main loop   │
+                                                                          │ parses \n   │
+                                                                          │ → ESB send  │
+                                                                          └─────────────┘
 ```
 
 The USB RX thread drains the CDC FIFO into a ring buffer and signals a semaphore. The main loop waits on the semaphore and parses complete newline-terminated messages before forwarding them over ESB.
