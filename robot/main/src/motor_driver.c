@@ -14,7 +14,7 @@ static const char *TAG = "MOTOR";
 #define MCPWM_RESOLUTION_HZ  1000000   // 1 MHz -> 1 tick = 1 us
 #define MCPWM_PERIOD_TICKS   20000     // 20 ms period -> 50 Hz
 
-#define PWM_TICKS_MIN     ((uint32_t)(0.05f  * MCPWM_PERIOD_TICKS))  // 1000 us (throttle -100, full brake)
+#define PWM_TICKS_MIN     ((uint32_t)(0.05f  * MCPWM_PERIOD_TICKS))  // 1000 us (throttle -100, full reverse)
 #define PWM_TICKS_MAX     ((uint32_t)(0.10f  * MCPWM_PERIOD_TICKS))  // 2000 us (throttle +100, full forward)
 #define PWM_TICKS_NEUTRAL ((uint32_t)(0.075f * MCPWM_PERIOD_TICKS))  // 1500 us (throttle 0, neutral  ESC arms here)
 

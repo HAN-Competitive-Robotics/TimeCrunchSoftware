@@ -6,6 +6,7 @@
 static float   s_integral   = 0.0f;
 static int64_t s_last_time  = 0;
 static float   s_target_rpm = WEAPON_ATTACK_RPM;
+static int8_t  reverse_flag = 1; // 1 or -1
 
 void weapon_controller_init(void)
 {
@@ -17,6 +18,10 @@ void weapon_controller_init(void)
 void weapon_controller_set_target_rpm(float rpm)
 {
     s_target_rpm = rpm;
+}
+
+void weapon_controller_set_reverse_flag(int8_t flag) {
+    reverse_flag = flag;
 }
 
 void weapon_controller_reset(void)
@@ -49,5 +54,5 @@ void weapon_controller_update(void)
     if (output > 100.0f) output = 100.0f;
     if (output <   0.0f) output =   0.0f;
 
-    motor_set_throttle(MOTOR_WEAPON, (int)output);
+    motor_set_throttle(MOTOR_WEAPON, (int)output * reverse_flag);
 }

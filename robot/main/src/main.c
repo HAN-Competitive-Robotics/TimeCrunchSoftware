@@ -151,14 +151,16 @@ void task_core1(void *pvParameters)
             state = new_state;
         }
 
-        /* Weapon: 0=off, 1-127=idle, 128-255=attack */
-        if (state.hard_failsafe || state.failsafe_active || !state.packet_received || state.weapon_throttle == 0) {
+        /* Weapon: 127=off, 0-62=attack reverse, 63-126=idle reverse, 128-191=idle, 192-255=attack */
+        if (state.hard_failsafe || state.failsafe_active || !state.packet_received || state.weapon_throttle == 127) {
             weapon_controller_reset();
             motor_set_throttle(MOTOR_WEAPON, 0);
-        } else if (state.weapon_throttle >= 128) {
+        } else if (state.weapon_throttle >= 191 || state.weapon_throttle <= 63) {
+            weapon_controller_set_reverse_flag(state.weapon_throttle >= 191 ? 1 : -1);
             weapon_controller_set_target_rpm(WEAPON_ATTACK_RPM);
             weapon_controller_update();
         } else {
+            weapon_controller_set_reverse_flag(state.weapon_throttle > 127 ? 1 : -1);
             weapon_controller_set_target_rpm(WEAPON_IDLE_RPM);
             weapon_controller_update();
         }
