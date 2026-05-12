@@ -1,3 +1,4 @@
 {
-  "nrf-connect.applications": ["${workspaceFolder}/DongleFirmware"]
+  "nrf-connect.applications": ["${workspaceFolder}/DongleFirmware"],
+  "cmake.sourceDirectory": "/Users/yalukaiwo/Projects/HCR/Software/battlebot-software/controller/main"
 }
