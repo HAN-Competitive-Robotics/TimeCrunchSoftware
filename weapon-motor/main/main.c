@@ -82,12 +82,23 @@ static void pwm_set_us(uint32_t us)
     mcpwm_comparator_set_compare_value(s_cmp, us);
 }
 
-/* Set throttle 0-100 → maps to neutral(1500µs) .. full fwd(2000µs) */
+/* Set throttle -100..100
+ *  positive  → forward:  neutral(1500µs) .. full fwd(2000µs)
+ *  0         → neutral
+ *  negative  → brake/reverse zone: neutral(1500µs) .. full(1000µs)
+ *    (ESC decides brake vs reverse based on motor state)
+ */
 static void pwm_set_throttle(int pct)
 {
-    if (pct < 0)   pct = 0;
-    if (pct > 100) pct = 100;
-    uint32_t us = (uint32_t)(PWM_NEUTRAL + pct * (PWM_FULL_FWD - PWM_NEUTRAL) / 100);
+    if (pct < -100) pct = -100;
+    if (pct > 100)  pct = 100;
+
+    uint32_t us;
+    if (pct >= 0) {
+        us = (uint32_t)(PWM_NEUTRAL + pct * (PWM_FULL_FWD - PWM_NEUTRAL) / 100);
+    } else {
+        us = (uint32_t)(PWM_NEUTRAL + pct * (PWM_NEUTRAL - PWM_FULL_BRK) / 100);
+    }
     pwm_set_us(us);
 }
 
@@ -144,9 +155,9 @@ void app_main(void)
     printf("        Press Enter when done...\n");
     wait_enter();
 
-    /* Full brake */
+    /* Full brake / reverse endpoint */
     pwm_set_us(PWM_FULL_BRK);
-    printf("\nSTEP 4  Signal → FULL BRAKE (%d µs)\n", PWM_FULL_BRK);
+    printf("\nSTEP 4  Signal → FULL BRAKE / REVERSE (%d µs)\n", PWM_FULL_BRK);
     printf("        Press SET on ESC → GREEN flashes 3×, 3 beeps.\n");
     printf("        Press Enter when done...\n");
     wait_enter();
@@ -176,10 +187,14 @@ void app_main(void)
     printf("║   WEAPON ESC TEST            ║\n");
     printf("╚══════════════════════════════╝\n\n");
     printf("Connect battery to ESC. Wait for arming beep.\n");
-    printf("Type 0-100 and press Enter to set throttle %%.\n");
-    printf("0 = stopped (neutral), 100 = full speed.\n\n");
+    printf("Type -100 to 100 and press Enter to set throttle %%.\n");
+    printf("  0   = stopped (neutral)\n");
+    printf("  100 = full forward\n");
+    printf(" -10  = brake (while spinning)\n");
+    printf(" -10  = reverse (after motor has stopped)\n");
+    printf(" -100 = full brake/reverse\n\n");
 
-    char    buf[8];
+    char    buf[16];
     uint8_t idx = 0;
     uint8_t c   = 0;
     int     cur = 0;
@@ -193,18 +208,28 @@ void app_main(void)
             idx = 0;
 
             int pct = atoi(buf);
-            if (pct < 0)   pct = 0;
-            if (pct > 100) pct = 100;
+            if (pct < -100) pct = -100;
+            if (pct > 100)  pct = 100;
 
             pwm_set_throttle(pct);
             cur = pct;
 
-            uint32_t us = (uint32_t)(PWM_NEUTRAL + pct * (PWM_FULL_FWD - PWM_NEUTRAL) / 100);
-            printf("Throttle: %3d%%  (%lu µs)\n", cur, (unsigned long)us);
+            uint32_t us;
+            if (pct >= 0) {
+                us = (uint32_t)(PWM_NEUTRAL + pct * (PWM_FULL_FWD - PWM_NEUTRAL) / 100);
+                printf("Throttle: %3d%%  (%lu µs)\n", cur, (unsigned long)us);
+            } else {
+                us = (uint32_t)(PWM_NEUTRAL + pct * (PWM_NEUTRAL - PWM_FULL_BRK) / 100);
+                printf("Rev/Brk:  %3d%%  (%lu µs)\n", -cur, (unsigned long)us);
+            }
         } else if ((c == 8 || c == 127) && idx > 0) {
             idx--;
-        } else if (idx < (uint8_t)(sizeof(buf) - 1) && c >= '0' && c <= '9') {
-            buf[idx++] = (char)c;
+        } else if (idx < (uint8_t)(sizeof(buf) - 1)) {
+            if (c >= '0' && c <= '9') {
+                buf[idx++] = (char)c;
+            } else if (c == '-' && idx == 0) {
+                buf[idx++] = (char)c;
+            }
         }
     }
 }
