@@ -1,0 +1,8 @@
+#
+# ESP-IDF sdkconfig.defaults
+# Only non-default values are listed here.
+# Run `idf.py reconfigure` to regenerate the full sdkconfig.
+#
+
+# Compiler optimization for real-time control (was DEBUG)
+CONFIG_COMPILER_OPTIMIZATION_PERF=y

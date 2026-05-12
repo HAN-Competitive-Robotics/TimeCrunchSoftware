@@ -1,5 +1,10 @@
 .idea/
 cmake-build-*/
 build/
+build_*/
 node_modules/
-
+.DS_Store
+__pycache__
+venv/
+driver/venv/
+robot/sdkconfig

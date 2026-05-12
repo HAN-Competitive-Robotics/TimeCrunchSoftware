@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Wrapper that auto-sources the ESP-IDF environment if needed,
+# then delegates all arguments to the real idf.py.
+#
+# Usage from repo root:
+#   ./robot/idf reconfigure
+#   ./robot/idf build
+#   ./robot/idf -p /dev/cu.usbserial-0001 flash monitor
+#
+# Or from inside robot/:
+#   ./idf menuconfig
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# If idf.py is already available, just run it
+if command -v idf.py >/dev/null 2>&1; then
+	exec idf.py "$@"
+fi
+
+# Otherwise auto-source ESP-IDF export script
+IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
+
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "win32" ]]; then
+	EXPORT_SCRIPT="$IDF_PATH/export.bat"
+else
+	EXPORT_SCRIPT="$IDF_PATH/export.sh"
+fi
+
+if [[ ! -f "$EXPORT_SCRIPT" ]]; then
+	echo "ERROR: ESP-IDF not found at $IDF_PATH" >&2
+	echo "Install it or set IDF_PATH to the correct location." >&2
+	exit 1
+fi
+
+# Source export script (this wrapper is ephemeral, so polluting the shell is fine)
+source "$EXPORT_SCRIPT" >/dev/null 2>&1
+
+# Hand off to the real idf.py
+exec idf.py "$@"
