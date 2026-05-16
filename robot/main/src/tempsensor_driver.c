@@ -1,4 +1,5 @@
 #include "tempsensor_driver.h"
+#include "i2c_bus.h"
 
 #include <math.h>
 #include "driver/i2c.h"
@@ -6,7 +7,6 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 
-#define I2C_FREQ_HZ     400000
 #define I2C_TIMEOUT_MS  10
 
 // BMP280 registers
@@ -54,20 +54,6 @@ static esp_err_t bmp280_write(sensor_cfg_t *s, uint8_t reg, uint8_t val)
 
 static const char *TAG = "TEMP";
 
-static void init_i2c_bus(i2c_port_t port, int sda, int scl)
-{
-    i2c_config_t cfg = {
-        .mode             = I2C_MODE_MASTER,
-        .sda_io_num       = sda,
-        .scl_io_num       = scl,
-        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_FREQ_HZ,
-    };
-    ESP_ERROR_CHECK(i2c_param_config(port, &cfg));
-    ESP_ERROR_CHECK(i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0));
-}
-
 static void init_sensor(sensor_cfg_t *s)
 {
     uint8_t chip_id = 0;
@@ -98,8 +84,10 @@ static void init_sensor(sensor_cfg_t *s)
 
 void tempsensor_driver_init(void)
 {
-    init_i2c_bus(I2C_NUM_0, TEMP_I2C0_SDA, TEMP_I2C0_SCL);
-    init_i2c_bus(I2C_NUM_1, TEMP_I2C1_SDA, TEMP_I2C1_SCL);
+    ESP_ERROR_CHECK(i2c_bus_init(I2C_NUM_0, I2C0_DEFAULT_SDA, I2C0_DEFAULT_SCL,
+                                 I2C_BUS_DEFAULT_FREQ_HZ));
+    ESP_ERROR_CHECK(i2c_bus_init(I2C_NUM_1, TEMP_I2C1_SDA, TEMP_I2C1_SCL,
+                                 I2C_BUS_DEFAULT_FREQ_HZ));
 
     for (int i = 0; i < TEMP_COUNT; i++) {
         init_sensor(&s_sensors[i]);

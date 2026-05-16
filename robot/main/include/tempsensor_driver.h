@@ -2,9 +2,9 @@
 
 #include <stdint.h>
 
-// I2C bus 0 pins  left and right wheel sensors (addresses 0x76 and 0x77)
-#define TEMP_I2C0_SDA 22
-#define TEMP_I2C0_SCL 33
+// I2C bus 0 hosts the left/right wheel sensors (0x76, 0x77) on the default
+// ESP32 IO_MUX pins  see I2C0_DEFAULT_SDA / I2C0_DEFAULT_SCL in i2c_bus.h.
+// Bus 0 is shared with the INA3221 power monitor (power_sensor_driver).
 
 // I2C bus 1 pins  weapon sensor (address 0x76)
 #define TEMP_I2C1_SDA 25

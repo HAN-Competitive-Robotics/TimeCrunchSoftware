@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "motor_driver.h"
+#include "power_sensor_driver.h"
 #include "tempsensor_driver.h"
 #include "encoder_driver.h"
 #include "weapon_controller.h"
@@ -51,6 +52,9 @@ void task_core0(void *pvParameters)
 
     ESP_LOGI(TAG, "Initializing temperature sensors...");
     tempsensor_driver_init();
+
+    ESP_LOGI(TAG, "Initializing power sensors...");
+    power_sensor_driver_init();
 
     ESP_LOGI(TAG, "Initializing encoder...");
     encoder_driver_init();
@@ -181,6 +185,7 @@ void task_temp(void *pvParameters)
                  temp_get_temperature(TEMP_RIGHT_WHEEL),
                  temp_get_temperature(TEMP_WEAPON),
                  encoder_get_rpm());
+        ESP_LOGD(TAG, "CURR: 1=%.1f 2=%.1f 3=%.1f VOLT=%.1f", power_sensor_get_current(POWER_LEFT_WHEEL), power_sensor_get_current(POWER_RIGHT_WHEEL), power_sensor_get_current(POWER_WEAPON), power_sensor_get_voltage());
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
