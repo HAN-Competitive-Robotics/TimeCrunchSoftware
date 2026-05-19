@@ -85,7 +85,7 @@ cd robot && idf.py -B build build
 
 ### Put the dongle in bootloader mode
 
-Hold the **small reset button** (not the user button) while plugging the dongle into USB. The dongle enters Nordic Bootloader DFU mode  a red LED should fade in/out or the device should enumerate as a DFU device.
+Press the **small reset button** (the small white sideways attached button). The dongle enters Nordic Bootloader DFU mode  a red LED should fade in/out or the device should enumerate as a DFU device.
 
 On macOS you should see a new `JLINK` mass-storage drive or a DFU serial port appear.
 
@@ -107,7 +107,12 @@ python scripts/build-dongle.py           # build only
 python scripts/build-dongle.py flash     # build + flash
 python scripts/build-dongle.py clean     # clean build directory
 ```
+### Via NRF Connect App and VSCode extension (Manually)
 
+1. Add build configuration in the NRF Connect SDK VSCode extension, select the ```nrf52840dongle/nrf52840 ``` board and generate
+2. Open the Programmer in the NRF Connect App and select the device(Should show up as DFU Bootloader if put into bootloader mode using the white sideways button)
+3. Add the hex file from path  ``` ~\TimeCrunchSoftware\radio-dongle\build\radio-dongle\zephyr\zephyr.hex ``` and doublecheck it does not overwrite the bootloader section of the memory then press write to flash the dongle
+   
 ### Environment configuration
 
 If `west` is not in your PATH, copy the example environment file and fill in your SDK path:
