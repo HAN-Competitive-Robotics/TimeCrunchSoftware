@@ -21,7 +21,7 @@ radio-dongle/
 ├── prj.conf                Zephyr Kconfig selections
 ├── src/
 │   ├── main.c              Thread creation, main loop, USB parsing
-│   ├── esb_ptx.c           Nordic ESB transmitter initialisation and send
+│   ├── esb_ptx.c           Nordic ESB transmitter initialisation and transmission/receiving helpers
 │   ├── esb_ptx.h           ESB API
 │   ├── usb.c               USB CDC ACM initialisation, read/write helpers
 │   └── usb.h               USB API
@@ -106,7 +106,7 @@ config.mode              = ESB_MODE_PTX;          // Primary Transmitter
 config.payload_length    = 4;                    // fixed payload
 ```
 
-The `ESB_PROTOCOL_ESB` (not `ESB_PROTOCOL_ESB_DPL`) selection disables dynamic payload length. The payload is always exactly 4 bytes, matching the nRF24L01+ receiver's `RX_PW_P0 = 4` configuration.
+The `ESB_PROTOCOL_ESB` (not `ESB_PROTOCOL_ESB_DPL`) selection disables dynamic payload length. The payload is always exactly 4 bytes, matching the nRF24L01+ receiver's `RX_PW_P0 = 4` configuration. This is to reduce overhead.
 
 `selective_auto_ack = true` with `noack = true` in payloads means the dongle can selectively disable ACK requests per packet. With `retransmit_count = 0`, even if an ACK were requested, there would be no retransmission attempt.
 
