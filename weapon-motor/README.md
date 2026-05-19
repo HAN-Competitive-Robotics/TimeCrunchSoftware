@@ -1,4 +1,4 @@
-# weapon-motor
+# Weapon-motor
 
 Standalone ESP-IDF utility firmware for the **Hobbywing QUICRUN 8BL150 G2** ESC + **4268** brushless motor.
 
