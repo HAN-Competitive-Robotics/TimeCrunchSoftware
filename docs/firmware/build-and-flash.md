@@ -89,8 +89,9 @@ Press the **small reset button** (the small white sideways attached button). The
 
 On macOS you should see a new `JLINK` mass-storage drive or a DFU serial port appear.
 
-### Via flash script
+If you are on macOS you can choose between flash script and going through the NRF Connect App. On Windows you have to go thorugh the app as the scripts are not compatible with windows yet.
 
+### Via flash script
 ```bash
 python scripts/flash.py --dongle
 ```
