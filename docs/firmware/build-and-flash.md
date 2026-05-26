@@ -107,12 +107,6 @@ python scripts/build-dongle.py           # build only
 python scripts/build-dongle.py flash     # build + flash
 python scripts/build-dongle.py clean     # clean build directory
 ```
-### Via NRF Connect App and VSCode extension (Manually)
-
-1. Add build configuration in the NRF Connect SDK VSCode extension, select the ```nrf52840dongle/nrf52840 ``` board and generate
-2. Open the Programmer in the NRF Connect App and select the device(Should show up as DFU Bootloader if put into bootloader mode using the white sideways button)
-3. Add the hex file from path  ``` ~\TimeCrunchSoftware\radio-dongle\build\radio-dongle\zephyr\zephyr.hex ``` and doublecheck it does not overwrite the bootloader section of the memory then press write to flash the dongle
-   
 ### Environment configuration
 
 If `west` is not in your PATH, copy the example environment file and fill in your SDK path:
@@ -121,7 +115,12 @@ If `west` is not in your PATH, copy the example environment file and fill in you
 cp radio-dongle/local/ncs.env.example radio-dongle/local/ncs.env
 # Edit ncs.env and set NCS_TOOLCHAIN and NCS_SDK paths
 ```
+### Via NRF Connect App and VSCode extension (Manually)
 
+1. Add build configuration in the NRF Connect SDK VSCode extension, select the ```nrf52840dongle/nrf52840 ``` board and generate
+2. Open the Programmer in the NRF Connect App and select the device(Should show up as DFU Bootloader if put into bootloader mode using the white sideways button)
+3. Add the hex file from path  ``` ~\TimeCrunchSoftware\radio-dongle\build\radio-dongle\zephyr\zephyr.hex ``` and doublecheck it does not overwrite the bootloader section of the memory then press write to flash the dongle
+   
 ---
 
 ## Flashing Weapon Motor Utility (`weapon-motor/`)
