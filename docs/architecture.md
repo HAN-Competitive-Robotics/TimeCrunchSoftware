@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Three separate microcontrollers, each with a clearly defined responsibility:
+Three separate systems, each with a clearly defined responsibility:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
