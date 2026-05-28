@@ -126,4 +126,4 @@ ESP32 3V3 (output) →  nRF24L01+ VCC, BMP280 VCC
 ## See Also
 
 - [Pinout](pinout.md)
-- [Hardware Topology](../architecture/hardware-topology.md)
+- [Architecture](../architecture.md)

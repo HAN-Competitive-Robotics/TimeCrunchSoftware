@@ -132,7 +132,7 @@ static void event_handler(struct esb_evt const *event)
 
 `g_ready` is set to `false` when a packet is queued and back to `true` after TX_SUCCESS or TX_FAILED. This prevents queuing a new packet before the previous one has been transmitted. Since `retransmit_count = 0`, both events fire almost immediately after the packet is sent.
 
-`ESB_EVENT_RX_RECEIVED` handles ACK payloads from the robot. Since the robot is configured to auto-ACK (see [ESB Protocol known issue](../communication/esb-protocol.md)), ACK packets arrive here and are discarded.
+`ESB_EVENT_RX_RECEIVED` handles ACK payloads from the robot. Since the robot is configured to auto-ACK (see [ESB Protocol known issue](../communication.md)), ACK packets arrive here and are discarded.
 
 ### `esb_radio_ready()` check
 
@@ -210,7 +210,6 @@ See [Build and Flash](build-and-flash.md) for the complete workflow. The dongle 
 
 ## See Also
 
-- [ESB Protocol](../communication/esb-protocol.md)
-- [Serial Protocol](../communication/serial-protocol.md)
+- [Communication](../communication.md)
 - [Build and Flash](build-and-flash.md)
-- [Zephyr Setup](../onboarding/zephyr-setup.md)
+- [Onboarding](../onboarding.md)

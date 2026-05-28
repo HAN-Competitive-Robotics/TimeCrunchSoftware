@@ -26,13 +26,13 @@ python scripts/find-ports.py
 ### ESP32 (`robot/` and `weapon-motor/`)
 
 1. Install ESP-IDF at `~/esp/esp-idf` (exact path required by flash script)
-2. Follow [ESP-IDF Setup](../onboarding/esp-idf-setup.md)
+2. Follow [ESP-IDF Setup](../onboarding.md)
 3. ESP32 DevKit connected via USB
 
 ### nRF52840 Dongle (`radio-dongle/`)
 
 1. Install nRF Connect SDK (NCS) with `west` and `nrfutil` in PATH
-2. Follow [Zephyr Setup](../onboarding/zephyr-setup.md)
+2. Follow [Zephyr Setup](../onboarding.md)
 3. Dongle in USB bootloader mode (hold reset while plugging in)
 
 ### Python station (`driver/`)
@@ -200,7 +200,4 @@ D (1305) MAIN: RX: L=127 R=127 W=  0 F=  0
 
 ## See Also
 
-- [ESP-IDF Setup](../onboarding/esp-idf-setup.md)
-- [Zephyr Setup](../onboarding/zephyr-setup.md)
-- [First Bringup](../onboarding/first-bringup.md)
-- [Debugging Workflow](../onboarding/debugging-workflow.md)
+- [Onboarding](../onboarding.md)
