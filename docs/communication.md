@@ -8,7 +8,7 @@ The control packet is 4 bytes. **Any change to this format must be reflected in 
 Serial wire format (5 bytes total):
 ┌──────────┬──────────┬──────────┬──────────┬──────────┐
 │  Byte 0  │  Byte 1  │  Byte 2  │  Byte 3  │  Byte 4  │
-│motor_left│motor_right│  weapon  │killswitch│   '\n'   │
+│motor_left│motor_right│  weapon  │killswitch│   '\n'  │
 │  0–255   │  0–255   │  0–255   │  0–255   │  0x0A    │
 └──────────┴──────────┴──────────┴──────────┴──────────┘
 ```
