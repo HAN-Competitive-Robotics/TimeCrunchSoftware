@@ -82,32 +82,6 @@ The USB serial link connects the Python driver station to the nRF52840 dongle.
 | Frame delimiter | `\n` (0x0A) or `\r` (0x0D) |
 | Frame size | 5 bytes (4 data + newline) |
 
-### Dongle Parsing
-
-```c
-static void usb_parse_available(void)
-{
-    uint8_t b;
-    while (ring_buf_get(&usb_rb, &b, 1) == 1) {
-        if (b == '\n' || b == '\r') {
-            if (msg_len > 0) {
-                handle_message(msg_buf, msg_len);
-                msg_len = 0;
-            }
-            continue;
-        }
-        if (msg_len < MSG_MAX) {
-            msg_buf[msg_len++] = b;
-        } else {
-            msg_len = 0;
-            usb_cdc_write((const uint8_t *)"ERR: msg too long\r\n", 19);
-        }
-    }
-}
-```
-
-`handle_message` validates length == 4, then transmits via ESB. Non-4-byte messages are logged and dropped.
-
 ### Port Auto-Detection
 
 The nRF52840 dongle exposes **two** CDC ACM interfaces:
