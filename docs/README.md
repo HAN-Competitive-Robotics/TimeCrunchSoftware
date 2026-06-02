@@ -1,10 +1,10 @@
 # HCR Battlebot — Engineering Documentation
 
-A gamepad plugged into a laptop controls a combat robot wirelessly in real time across three microcontrollers:
+A gamecontroller plugged into a laptop controls a combat robot wirelessly in real time across three microcontrollers:
 
 ```
 Laptop (Python) → nRF52840 Dongle (Zephyr) → ESP32 Robot (ESP-IDF)
-  gamepad input     USB-to-radio bridge        motors + weapon + safety
+  gamecontroller input     USB-to-radio bridge        motors + weapon + safety
 ```
 
 **New here?** Start with [Architecture](architecture.md), then [Onboarding](onboarding.md).

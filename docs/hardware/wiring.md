@@ -15,9 +15,9 @@ Pin 7: MISO         →       GPIO 19
 Pin 8: IRQ          →       GPIO 27
 ```
 
-> **Critical:** The nRF24L01+ module operates at 3.3 V. Connecting VCC to the 5 V pin on the ESP32 DevKit will destroy the module immediately. Most ESP32 DevKit boards label both a 3V3 and a VIN/5V pin.
+> **Critical:** The nRF24L01+ module operates at 3.3 V. Connecting VCC to the 5 V pin on the ESP32 DevKit is not good for the module. Most ESP32 DevKit boards label both a 3V3 and a VIN/5V pin.
 
-**Decoupling capacitor (recommended):** Place a 10–100 µF electrolytic capacitor between the nRF24 module's VCC and GND pins, physically as close to the module as possible. This suppresses the voltage spikes caused by the radio's transmit current draw (~11 mA peak) and prevents RF instability.
+**Decoupling capacitor (optional):** Place a 10–100 µF electrolytic capacitor between the nRF24 module's VCC and GND pins, physically as close to the module as possible. This suppresses the voltage spikes caused by the radio's transmit current draw (~11 mA peak) and prevents RF instability.
 
 ---
 
@@ -42,7 +42,7 @@ Weapon ESC:
   Power     →  Battery
 ```
 
-**Signal level:** ESP32 GPIO outputs are 3.3 V. All standard RC ESCs accept 3.3 V signal levels (they use a comparator input, not a logic gate). No level shifter is required.
+**Signal level:** ESP32 GPIO outputs are 3.3 V. All standard ESCs accept 3.3 V signal levels (they use a comparator input, not a logic gate). No level shifter is required.
 
 **Ground reference:** The ESP32 GND must be connected to the ESC signal ground. Without a common ground, the PWM signal voltage reference is floating and the ESC will not respond correctly. If the ESC has a BEC (Battery Eliminator Circuit) providing 5 V on its red wire, do not connect that 5 V to the ESP32 connect only signal and ground.
 
@@ -50,10 +50,10 @@ Weapon ESC:
 
 ## BMP280 Temperature Sensor Connections
 
-### I²C Bus 0 (Left and Right Wheel Sensors)
+### I²C Bus 0 (Weapon motor)
 
 ```
-BMP280 (left wheel sensor)       ESP32
+BMP280 (weapon motor)       ESP32
 ──────────────────────────────────────
 VCC   →  3V3
 GND   →  GND
@@ -61,31 +61,9 @@ SDA   →  GPIO 33
 SCL   →  GPIO 22
 SDO   →  GND              (I²C address 0x76)
 CSB   →  VCC              (selects I²C mode)
-
-BMP280 (right wheel sensor)      ESP32
-──────────────────────────────────────
-VCC   →  3V3
-GND   →  GND
-SDA   →  GPIO 33          (same SDA line)
-SCL   →  GPIO 22          (same SCL line)
-SDO   →  VCC              (I²C address 0x77)
-CSB   →  VCC
 ```
 
-### I²C Bus 1 (Weapon Motor Sensor)
-
-```
-BMP280 (weapon sensor)           ESP32
-──────────────────────────────────────
-VCC   →  3V3
-GND   →  GND
-SDA   →  GPIO 25
-SCL   →  GPIO 26
-SDO   →  GND              (I²C address 0x76)
-CSB   →  VCC
-```
-
-**SDO pin:** This pin determines the I²C address. SDO=GND → address 0x76, SDO=VCC → 0x77. On the bus 0 left/right pair, one sensor must be 0x76 and the other 0x77 they cannot both share the same address.
+**SDO pin:** This pin determines the I²C address. SDO=GND → address 0x76, SDO=VCC → 0x77.If you want to add another I²C device withe the same address as either of the bmp's on this bus change the address accordingly.
 
 **Pull-ups:** The firmware enables ESP32 internal pull-ups on all I²C SDA and SCL pins. For short wiring runs (< 30 cm) this is sufficient. For longer runs or noisy environments, add external 4.7 kΩ pull-ups to 3.3 V.
 
