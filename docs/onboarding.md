@@ -165,7 +165,7 @@ Follow in order on a newly assembled robot or after reflashing.
 - [ ] ESC signal wires: left=GPIO 14, right=GPIO 13, weapon=GPIO 21
 - [ ] ESC ground wires connected to ESP32 GND
 - [ ] All three BMP280 sensors on their I²C buses
-- [ ] Optical encoder on GPIO 15
+- [ ] Hall encoder on GPIO 15
 - [ ] ESP32 powered from 5 V BEC (not from weapon ESC BEC)
 
 ### Phase 2 — Weapon ESC Calibration (Once Per New ESC)
@@ -188,7 +188,7 @@ I (xxx) MOTOR: MCPWM init OK: 3 motors on group 0
 I (xxx) MAIN: Initializing temperature sensors...
 I (xxx) TEMP: Temp sensors init OK
 I (xxx) MAIN: Initializing encoder...
-I (xxx) ENCODER: Encoder init OK: GPIO 15, 20 holes
+I (xxx) ENCODER: Encoder init OK: GPIO 15, 2 pulses/rev
 I (xxx) MAIN: Initializing nRF24...
 I (xxx) NRF24: nRF24 configured: channel=40 payload=4 @ 8 MHz SPI
 I (xxx) MAIN: STATUS = 0x0E

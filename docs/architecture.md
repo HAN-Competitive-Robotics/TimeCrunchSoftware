@@ -199,7 +199,7 @@ any → safe (disarm or failsafe)
 │  I²C BUS 1 (SDA=25, SCL=26, 400 kHz)                       │
 │    BMP280 @ 0x76 — weapon motor temp                       │
 │                                                             │
-│  PCNT GPIO 15 — optical encoder, 20-hole wheel, 100ms timer │
+│  PCNT GPIO 15 — Hall encoder, 2 pulses/rev, 20 ms timer     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -232,7 +232,7 @@ Group 0, 1 MHz resolution (1 µs/tick), 20,000-tick period (50 Hz). PWM_MIN=1000
 
 ### PCNT (Encoder)
 
-GPIO 15, rising-edge count, 1000 ns glitch filter, sampled every 100 ms. RPM = count × 30 (formula: `count × (60 / 0.1) / 20`).
+GPIO 15, both-edge count, 1000 ns glitch filter, sampled every 20 ms. RPM = count × 1500 (formula: `count × (60 / 0.02) / 2`).
 
 ---
 

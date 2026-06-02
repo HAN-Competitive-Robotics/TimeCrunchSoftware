@@ -10,16 +10,16 @@ All GPIO assignments are defined in header files. This table is derived directly
 | 5 | `nrf24.h` | `NRF24_PIN_CSN` | nRF24L01+ SPI CS | OUT | Active LOW  manual toggle in driver |
 | 13 | `motor_driver.h` | `MOTOR_PIN_RIGHT_WHEEL` | Right wheel ESC PWM | OUT | MCPWM group 0 |
 | 14 | `motor_driver.h` | `MOTOR_PIN_LEFT_WHEEL` | Left wheel ESC PWM | OUT | MCPWM group 0 |
-| 15 | `encoder_driver.h` | `ENCODER_GPIO` | Encoder optical sensor | IN | PCNT, rising-edge count, pull-up enabled |
+| 15 | `encoder_driver.h` | `ENCODER_GPIO` | Weapon Hall encoder | IN | PCNT, both-edge count, pull-up enabled |
 | 18 | `nrf24.h` | `NRF24_PIN_CLK` | SPI clock | OUT | SPI3_HOST (VSPI), 8 MHz |
 | 19 | `nrf24.h` | `NRF24_PIN_MISO` | SPI MISO | IN | SPI3_HOST (VSPI) |
 | 21 | `motor_driver.h` | `MOTOR_PIN_WEAPON` | Weapon ESC PWM | OUT | MCPWM group 0 |
-| 22 | `tempsensor_driver.h` | `TEMP_I2C0_SDA` | I²C bus 0 data | BIDIR | BMP280 @0x76 and @0x77, 400 kHz |
+| 22 | `i2c_bus.h` | `I2C0_DEFAULT_SCL` | I²C bus 0 clock | OUT | BMP280 @0x76 and @0x77 + INA3221 @0x40, 400 kHz |
 | 23 | `nrf24.h` | `NRF24_PIN_MOSI` | SPI MOSI | OUT | SPI3_HOST (VSPI) |
 | 25 | `tempsensor_driver.h` | `TEMP_I2C1_SDA` | I²C bus 1 data | BIDIR | BMP280 @0x76, 400 kHz |
 | 26 | `tempsensor_driver.h` | `TEMP_I2C1_SCL` | I²C bus 1 clock | OUT | 400 kHz |
 | 27 | `nrf24.h` | `NRF24_PIN_IRQ` | nRF24L01+ interrupt | IN | Active LOW, GPIO_INTR_NEGEDGE, pull-up |
-| 33 | `tempsensor_driver.h` | `TEMP_I2C0_SCL` | I²C bus 0 clock | OUT | 400 kHz |
+| 33 | `i2c_bus.h` | `I2C0_DEFAULT_SDA` | I²C bus 0 data | BIDIR | BMP280 @0x76 and @0x77 + INA3221 @0x40, 400 kHz |
 
 ---
 

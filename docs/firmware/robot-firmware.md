@@ -49,7 +49,7 @@ void task_core0(void *pvParameters)
     // 2. Configure both I²C buses, read BMP280 calibration bytes
     tempsensor_driver_init();
 
-    // 3. Configure PCNT, start 100ms RPM timer
+    // 3. Configure PCNT, start 20ms RPM timer
     encoder_driver_init();
 
     // 4. Initialise PI state variables
@@ -172,7 +172,7 @@ static void apply_throttle_direct(motor_t motor, int throttle)
 
 ## Motor PWM (MCPWM)
 
-All three motors use the RC servo PWM protocol: 50 Hz period, 1000–2000 µs pulse width, neutral at 1500 µs.
+All three ESCs use PWM: 50 Hz period, 1000–2000 µs pulse width, neutral at 1500 µs.
 
 ```c
 mcpwm_timer_config_t timer_config = {
@@ -192,9 +192,7 @@ uint32_t ticks = PWM_TICKS_MIN +
 // throttle=100  → 2000 µs  (full forward)
 ```
 
-All three ESCs share one timer (synchronised) but each has its own operator, comparator(match value), and generator. The MCPWM is initialised at neutral (1500 µs), so ESCs arm automatically if the ESP32 boots before battery is connected.
-
-The weapon ESC (8BL150) is unidirectional — it does not support reverse. `weapon_controller_update()` clamps its output to [0, 100] to prevent a brake or reverse command from being sent.
+All three PWMs share one timer (synchronised) but each has its own operator, comparator(match value), and generator. The MCPWM is initialised at neutral (1500 µs), so ESCs arm automatically if the ESP32 boots before battery is connected.
 
 ---
 
@@ -215,16 +213,13 @@ The weapon runs a **PI controller with feedforward** at 100 Hz on Core 1.
 Control law:
 
 ```
-output = FF + KP × error + KI × ∫error·dt
-  where error = target_rpm − measured_rpm
-
 integral anti-windup: clamp integral so KI × integral ≤ (100 − FF)
 output clamped to [0, 100]
 ```
 
 `weapon_controller_reset()` zeroes the integral and resets the dt timestamp. Called whenever the weapon disarms to prevent an accumulated integral from causing a burst when the weapon re-arms.
 
-**Encoder lag:** The PCNT samples every 100 ms, but the weapon loop runs at 100 Hz (10 ms). For 9 out of every 10 iterations the PI sees a stale RPM value. Effective closed-loop rate is 10 Hz, not 100 Hz. Keep gains conservative.
+**Encoder lag:** The PCNT samples every 20 ms, but the weapon loop runs at 100 Hz (10 ms). For every second iteration the PI sees a stale RPM value. Effective closed-loop rate is 50 Hz, not 100 Hz.
 
 **Tuning procedure when ready:**
 
@@ -232,6 +227,111 @@ output clamped to [0, 100]
 2. Increase `KP` until the weapon responds quickly to disturbances without oscillating. Starting range: 0.002–0.01 (% throttle per RPM error).
 3. Add a small `KI` (e.g. 0.0005) to eliminate steady-state error under load.
 4. Verify anti-windup: stall briefly with a padded object, release — should recover smoothly without overshoot.
+
+---
+
+## Encoder Driver (`encoder_driver.c`)
+
+### Hall sensor and pulse counting
+
+The weapon RPM is measured by an **RS PRO 289-2088 bipolar Hall latch** sensing magnets on the weapon shaft. The latch toggles its output state on each pole transition, so a diametrically magnetised magnet (one N-face + one S-face per turn) produces 2 transitions per revolution — this is `ENCODER_PULSES_PER_REV` in `encoder_driver.h`.
+
+The sensor output is **NPN open-collector**: it only sinks the line to GND and never drives it high. The driver therefore enables the ESP32's internal pull-up on `ENCODER_GPIO` (15) — PCNT does not configure this itself.
+
+```c
+// NPN open-collector output: only sinks to GND, so pull the line high
+// through the internal pull-up. PCNT does not configure this itself.
+ESP_ERROR_CHECK(gpio_set_pull_mode(ENCODER_GPIO, GPIO_PULLUP_ONLY));
+```
+
+> **Wiring:** supply (red) to external +V (up to 24 V), GND (black) to common ground, output (white) to `ENCODER_GPIO`. The sensor V+ must **not** be pulled up to the ESP32 pin.
+
+### PCNT configuration
+
+Pulses are counted in hardware by the ESP32 **PCNT** peripheral, so no edges are missed and no CPU time is spent per pulse. Both edges of the latch output are counted (`INCREASE` on rising and falling), matching the bipolar latch's toggle-per-transition behaviour. A 1 µs glitch filter (`GLITCH_FILTER_NS`) rejects electrical noise shorter than a real pole transition. The unit limits span the full `int16` range; the count is read and cleared each sample period before it can overflow.
+
+### RPM computation
+
+An `esp_timer` periodic callback samples the counter every `SAMPLE_INTERVAL_MS` (20 ms), converts counts to RPM, and clears the counter for the next window:
+
+```c
+static void rpm_timer_cb(void *arg)
+{
+    int count = 0;
+    pcnt_unit_get_count(s_unit, &count);
+    pcnt_unit_clear_count(s_unit);
+
+    if (count < 0) count = 0;
+    float rpm = (float)count * COUNTS_TO_RPM;
+    ...
+}
+```
+
+The conversion factor folds the sampling window and pulses-per-rev into one constant:
+
+```c
+// RPM = count * (60 / sample_interval_s) / pulses_per_rev
+#define COUNTS_TO_RPM (60.0f / (SAMPLE_INTERVAL_MS / 1000.0f) / ENCODER_PULSES_PER_REV)
+```
+
+The callback runs in the timer service task on Core 0, while `encoder_get_rpm()` is called from the weapon controller on Core 1. The RPM float is shared across cores using the [atomic float pattern](#atomic-float-pattern): `s_rpm_bits` is an `_Atomic uint32_t` holding the IEEE-754 bit pattern, giving a sequentially-consistent 32-bit load/store across both Xtensa cores without disabling interrupts.
+
+---
+
+## Power Sensor Driver (`power_sensor_driver.c`)
+
+### INA3221 usage
+
+Battery voltage and per-motor current are measured by a **TI INA3221**, a 3-channel high-side current and bus-voltage monitor (Bensel breakout). It lives on `I2C_NUM_0`, the same bus as the wheel temperature sensors, so the wiring order does not matter — but `power_sensor_driver_init()` must run **after** `tempsensor_driver_init()`, which installs the I²C bus via `i2c_bus_init`. With A0 strapped to GND the 7-bit address is `0x40`.
+
+The three channels mirror the temperature-sensor mapping — each motor's power line runs through the matching channel:
+
+```c
+typedef enum {
+    POWER_LEFT_WHEEL,   // INA3221 channel 1
+    POWER_RIGHT_WHEEL,  // INA3221 channel 2
+    POWER_WEAPON,       // INA3221 channel 3
+    POWER_COUNT,
+} power_channel_t;
+```
+
+> **ID check:** init reads the manufacturer ID (0x5449) and die ID (0x3220) registers and verifies both before configuring. If the device does not respond or the IDs mismatch, the driver logs a warning and stays disabled — all subsequent reads then return `NAN`. Callers must treat `NAN` as "no data", not as a zero reading.
+
+### Sensor configuration
+
+A single write to the config register sets up continuous sampling on all channels:
+
+```
+config = 0x7727:
+  RST           = 0
+  CH1/CH2/CH3   = 111  (all three channels enabled)
+  AVG           = 011  (64-sample averaging)
+  VBUSCT        = 100  (1.1 ms bus conversion time)
+  VSHCT         = 100  (1.1 ms shunt conversion time)
+  MODE          = 111  (continuous shunt + bus, all channels)
+```
+
+64-sample averaging smooths the noisy current draw of the ESCs so a single read returns a stable value.
+
+### Voltage and current scaling
+
+The shunt and bus voltage registers hold a 13-bit signed value left-aligned in a 16-bit word (lower 3 bits reserved). Rather than shifting right by 3 and applying the LSB step separately, the driver treats the whole 16-bit word as `int16` and scales once — the `>>3` and the LSB step collapse into a single multiplication:
+
+```c
+// bus:   raw * 8 mV / 8  = raw * 1 mV
+// shunt: raw * 40 µV / 8 = raw * 5 µV
+#define BUS_LSB_V        1.0e-3f
+#define SHUNT_LSB_V      5.0e-6f
+```
+
+Current is recovered from the shunt voltage and the 0.100 Ω shunt fitted on every channel:
+
+```c
+float v_shunt = (float)(int16_t)raw * SHUNT_LSB_V;
+return v_shunt / SHUNT_OHMS;
+```
+
+Because all three channel inputs share a common V+ on the battery rail, `power_sensor_get_voltage()` reads the bus register of channel 1 only — any active channel reports the same rail voltage.
 
 ---
 

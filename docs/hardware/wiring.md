@@ -44,7 +44,7 @@ Weapon ESC:
 
 **Signal level:** ESP32 GPIO outputs are 3.3 V. All standard RC ESCs accept 3.3 V signal levels (they use a comparator input, not a logic gate). No level shifter is required.
 
-**Ground reference:** The ESP32 GND must be connected to the ESC signal ground. Without a common ground, the PWM signal voltage reference is floating and the ESC will not respond correctly. If the ESC has a BEC (Battery Eliminator Circuit) providing 5 V on its red wire, do not connect that 5 V to the ESP32  connect only signal and ground.
+**Ground reference:** The ESP32 GND must be connected to the ESC signal ground. Without a common ground, the PWM signal voltage reference is floating and the ESC will not respond correctly. If the ESC has a BEC (Battery Eliminator Circuit) providing 5 V on its red wire, do not connect that 5 V to the ESP32 connect only signal and ground.
 
 ---
 
@@ -57,8 +57,8 @@ BMP280 (left wheel sensor)       ESP32
 ──────────────────────────────────────
 VCC   →  3V3
 GND   →  GND
-SDA   →  GPIO 22
-SCL   →  GPIO 33
+SDA   →  GPIO 33
+SCL   →  GPIO 22
 SDO   →  GND              (I²C address 0x76)
 CSB   →  VCC              (selects I²C mode)
 
@@ -66,8 +66,8 @@ BMP280 (right wheel sensor)      ESP32
 ──────────────────────────────────────
 VCC   →  3V3
 GND   →  GND
-SDA   →  GPIO 22          (same SDA line)
-SCL   →  GPIO 33          (same SCL line)
+SDA   →  GPIO 33          (same SDA line)
+SCL   →  GPIO 22          (same SCL line)
 SDO   →  VCC              (I²C address 0x77)
 CSB   →  VCC
 ```
@@ -85,25 +85,29 @@ SDO   →  GND              (I²C address 0x76)
 CSB   →  VCC
 ```
 
-**SDO pin:** This pin determines the I²C address. SDO=GND → address 0x76, SDO=VCC → 0x77. On the bus 0 left/right pair, one sensor must be 0x76 and the other 0x77  they cannot both share the same address.
+**SDO pin:** This pin determines the I²C address. SDO=GND → address 0x76, SDO=VCC → 0x77. On the bus 0 left/right pair, one sensor must be 0x76 and the other 0x77 they cannot both share the same address.
 
 **Pull-ups:** The firmware enables ESP32 internal pull-ups on all I²C SDA and SCL pins. For short wiring runs (< 30 cm) this is sufficient. For longer runs or noisy environments, add external 4.7 kΩ pull-ups to 3.3 V.
 
 ---
 
-## Optical Encoder Connection
+## Hall Sensor Connection
+
+The weapon RPM sensor is an **RS PRO 289-2088** bipolar Hall latch with an NPN open-collector output.
 
 ```
-Encoder photointerrupter module    ESP32
-───────────────────────────────────────
-VCC     →  3V3 or 5V (check module)
-GND     →  GND
-Signal  →  GPIO 15
+RS PRO 289-2088 Hall latch       ESP32 / Power
+──────────────────────────────────────────────
+Red    (supply, V+)  →  External +V (up to 24 V), NOT the ESP32 pin
+Black  (GND)         →  Common GND (shared with ESP32)
+White  (output)      →  GPIO 15
 ```
 
-The encoder module produces a digital HIGH/LOW signal as encoder holes pass through. The firmware configures PCNT to count rising edges. The signal should be clean and digital (0 / 3.3 V).
+The output is open-collector: it only sinks to GND and never sources voltage. A pull-up to 3.3 V is required, and the firmware enables the ESP32 internal pull-up on GPIO 15 — no external pull-up is needed for short runs. Because the output only pulls the line down to GND (never up to the sensor's supply voltage), the 3.3 V GPIO sees a clean 0 / 3.3 V signal regardless of the sensor supply voltage. **No level shifter or voltage divider is required**, even when the sensor is powered from a higher voltage rail.
 
-**If the encoder module outputs 5 V logic:** Use a voltage divider (10 kΩ / 22 kΩ) or level shifter to bring the signal down to 3.3 V before connecting to GPIO 15. The ESP32's maximum input voltage on GPIO pins is 3.3 V + 0.3 V tolerance.
+> **Critical:** Connect the sensor's red (V+) wire to its own supply rail only — never to a GPIO pin. The ESP32 pin connects to the white output wire alone. Connecting V+ to the ESP32 would expose the GPIO to the full supply voltage.
+
+The latch toggles its output on each magnetic pole transition. The firmware configures PCNT to count **both edges** (rising and falling). With one diametrically magnetised magnet on the weapon shaft (one N-face + one S-face per turn), this gives 2 counts per revolution (`ENCODER_PULSES_PER_REV = 2`). Adjust the firmware constant to match the actual pole count mounted on the rotor.
 
 ---
 
