@@ -38,7 +38,7 @@ robot/
 
 ## Initialisation Sequence
 
-All hardware initialisation happens inside `task_core0` before the main loop. This is deliberate: by the time `task_core1` and `task_temp` first iterate, all shared hardware resources are fully configured.
+All hardware initialisation happens inside `task_core0` before the main loop. This is deliberate: by the time `task_core1` and `task_temp` first iterate, all shared hardware resources are fully configured including radio channel, radio packet length etc. .
 
 ```c
 void task_core0(void *pvParameters)
@@ -66,29 +66,10 @@ void task_core0(void *pvParameters)
 }
 ```
 
-The ordering matters:
-- `motor_driver_init()` first so all ESC signals are at neutral (1500 µs) immediately
-- `tempsensor_driver_init()` before `weapon_controller_init()` (sensor data must be available for the PI's first safety check)
-- `nrf24_init_irq()` last  no interrupts fire before the hardware is fully configured
-
----
-
-## Motor Driver (`motor_driver.c`)
-
-### Key design decisions
-
-**All three motors use one MCPWM timer.** They share the same 50 Hz timer but each has its own operator, comparator, and generator. This synchronises all ESC signals but uses only one timer resource.
-
-**The thermal gate is in the driver, not the caller.** `motor_set_throttle` silently ignores commands when the thermal cutoff is active. Callers do not need to check temperature themselves. This centralises the safety logic.
-
-**`apply_throttle_direct` is private.** It bypasses the thermal gate and should only be called by `motor_safety_check` to enforce zero throttle under cutoff. If you add a new caller of `apply_throttle_direct`, you must understand you are bypassing the safety gate.
-
-```c
-static void apply_throttle_direct(motor_t motor, int throttle)
-{
-    // clamp to [-100, 100], convert to µs, write MCPWM comparator
-}
-```
+The ordering of  initialisation matters for the system to function properly:
+- `motor_driver_init()` first so all ESC signals are at neutral (1500 µs) immediately and the motors do not receive stale or undefined signals causing unexpected behavior
+- `tempsensor_driver_init()` before `weapon_controller_init()` as temperature data must be available for the weapon system PI-controllers first safety check
+- `nrf24_init_irq()` has to go last so no radio interrupts fire before the hardware is fully configured
 
 ---
 
@@ -132,7 +113,7 @@ All nRF24L01+ register addresses, command codes, and bit masks are defined in `n
 
 The BMP280 is a barometric pressure and temperature sensor. Only its **temperature channel** is used here  the pressure measurements are discarded. This is a pragmatic choice: BMP280 modules are inexpensive, widely available, and measure temperature accurately enough for thermal protection.
 
-> **Chip ID check:** The driver reads `BMP280_CHIP_ID` (0xD0) register and compares to 0x58. BME280 (the humidity variant) returns 0x60 at the same register. If you accidentally have BME280 modules, the driver will log a warning but continue  the compensation formula is compatible. Update `BMP280_CHIP_ID` to 0x60 or remove the check if using BME280.
+> **Chip ID check:** The driver reads `BMP280_CHIP_ID` (0xD0) register and compares to 0x58. BME280 (the humidity variant) returns 0x60 at the same register. If you use BME280 modules, the driver will log a warning but continue the compensation formula is compatible. Update `BMP280_CHIP_ID` to 0x60 or remove the check if using BME280.
 
 ### Temperature compensation
 
@@ -161,7 +142,30 @@ ctrl_meas = 0x23:
 In normal mode the BMP280 measures continuously. The `standby time` (config register = 0x00) is 0.5 ms, so new measurements are available every ~2 ms. The firmware reads whenever `temp_get_temperature()` is called  there is no explicit synchronisation with the BMP280's measurement cycle, but at 50 Hz polling the occasional stale reading is acceptable.
 
 ---
+---
 
+## Motor Driver (`motor_driver.c`)
+
+### Key design decisions
+
+**All three motors use one MCPWM timer.** They share the same 50 Hz timer but each has its own operator, comparator, and generator. This synchronises all ESC signals but uses only one timer resource.
+
+**The thermal gate is in the driver, not the caller.** `motor_set_throttle` silently ignores commands when the thermal cutoff is active. Callers do not need to check temperature themselves. This centralises the safety logic.
+
+**`apply_throttle_direct` is private.** It bypasses the thermal gate and should only be called by `motor_safety_check` to enforce zero throttle under cutoff. If you add a new caller of `apply_throttle_direct`, you must understand you are bypassing the safety gate.
+
+```c
+static void apply_throttle_direct(motor_t motor, int throttle)
+{
+    if (throttle < -100) throttle = -100;
+    if (throttle >  100) throttle =  100;
+    uint32_t ticks = PWM_TICKS_MIN +
+        (uint32_t)((throttle + 100) * (PWM_TICKS_MAX - PWM_TICKS_MIN) / 200);
+    mcpwm_comparator_set_compare_value(s_comparators[motor], ticks);
+}
+```
+
+---
 ## Motor PWM (MCPWM)
 
 All three motors use the RC servo PWM protocol: 50 Hz period, 1000–2000 µs pulse width, neutral at 1500 µs.
@@ -183,7 +187,7 @@ uint32_t ticks = PWM_TICKS_MIN +
 // throttle=100  → 2000 µs  (full forward)
 ```
 
-All three ESCs share one timer (synchronised) but each has its own operator, comparator, and generator. The MCPWM is initialised at neutral (1500 µs), so ESCs arm automatically if the ESP32 boots before battery is connected.
+All three ESCs share one timer (synchronised) but each has its own operator, comparator(match value), and generator. The MCPWM is initialised at neutral (1500 µs), so ESCs arm automatically if the ESP32 boots before battery is connected.
 
 The weapon ESC (8BL150) is unidirectional — it does not support reverse. `weapon_controller_update()` clamps its output to [0, 100] to prevent a brake or reverse command from being sent.
 
