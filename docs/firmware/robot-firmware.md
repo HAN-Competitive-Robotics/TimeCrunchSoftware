@@ -66,39 +66,11 @@ void task_core0(void *pvParameters)
 }
 ```
 
-<<<<<<< HEAD
-The ordering matters:
-
-- `motor_driver_init()` first so all ESC signals are at neutral (1500 µs) immediately
-- `tempsensor_driver_init()` before `weapon_controller_init()` (sensor data must be available for the PI's first safety check)
-- `nrf24_init_irq()` last no interrupts fire before the hardware is fully configured
-
----
-
-## Motor Driver (`motor_driver.c`)
-
-### Key design decisions
-
-**All three motors use one MCPWM timer.** They share the same 50 Hz timer but each has its own operator, comparator, and generator. This synchronises all ESC signals but uses only one timer resource.
-
-**The thermal gate is in the driver, not the caller.** `motor_set_throttle` silently ignores commands when the thermal cutoff is active. Callers do not need to check temperature themselves.
-
-**`apply_throttle_direct` is private.** It bypasses the thermal gate and should only be called by `motor_safety_check` to enforce zero throttle under cutoff. If you add a new caller of `apply_throttle_direct`, you must understand you are bypassing the safety gate.
-
-```c
-static void apply_throttle_direct(motor_t motor, int throttle)
-{
-    // clamp to [-100, 100], convert to µs, write MCPWM comparator
-}
-```
-
-=======
 The ordering of initialisation matters for the system to function properly:
 
 - `motor_driver_init()` first so all ESC signals are at neutral (1500 µs) immediately and the motors do not receive stale or undefined signals causing unexpected behavior
 - `tempsensor_driver_init()` before `weapon_controller_init()` as temperature data must be available for the weapon system PI-controllers first safety check
 - `nrf24_init_irq()` has to go last so no radio interrupts fire before the hardware is fully configured
-  > > > > > > > d2be8f612f7d6a7810bc4a009185f35171f882f3
 
 ---
 
