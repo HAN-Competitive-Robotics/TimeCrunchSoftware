@@ -63,5 +63,5 @@ There is no dynamic GPIO configuration  all assignments are compile-time constan
 
 ## See Also
 
-- [Hardware Topology](../architecture/hardware-topology.md)
+- [Architecture](../architecture.md)
 - [Wiring](wiring.md)

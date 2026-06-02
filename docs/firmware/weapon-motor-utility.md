@@ -125,6 +125,6 @@ Do not re-calibrate unnecessarily  ESC calibration is stored in the ESC's non-vo
 
 ## See Also
 
-- [ESC Control](../controls/esc-control.md)
+- [Robot Firmware](robot-firmware.md)
 - [Build and Flash](build-and-flash.md)
-- [Hardware Topology](../architecture/hardware-topology.md)
+- [Architecture](../architecture.md)

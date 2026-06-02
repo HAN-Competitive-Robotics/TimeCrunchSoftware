@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Three separate microcontrollers, each with a clearly defined responsibility:
+Three separate systems, each with a clearly defined responsibility:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -32,9 +32,9 @@ Three separate microcontrollers, each with a clearly defined responsibility:
 
 **Driver station** is stateless with respect to the robot — it does not know if packets were received. The robot enforces its own safety timeout independently.
 
-**Dongle** is a dumb bridge. It does not interpret packet content or cache anything. If serial goes silent, the dongle stops transmitting, triggering the robot's timeout.
+**Dongle** is a bridge forwarding the serial packets to the radio periphal. It does not interpret packet content or cache anything. If serial goes silent, the dongle stops transmitting, triggering the robot's timeout.
 
-**Robot** owns all safety logic. If anything goes wrong — lost radio, high temperature, killswitch — the robot acts on its own.
+**Robot** owns all safety logic. If anything goes wrong — lost radio, high temperature, killswitch — the robot reacts on its own by shutting down the system.
 
 ---
 

@@ -26,13 +26,13 @@ python scripts/find-ports.py
 ### ESP32 (`robot/` and `weapon-motor/`)
 
 1. Install ESP-IDF at `~/esp/esp-idf` (exact path required by flash script)
-2. Follow [ESP-IDF Setup](../onboarding/esp-idf-setup.md)
+2. Follow [ESP-IDF Setup](../onboarding.md)
 3. ESP32 DevKit connected via USB
 
 ### nRF52840 Dongle (`radio-dongle/`)
 
 1. Install nRF Connect SDK (NCS) with `west` and `nrfutil` in PATH
-2. Follow [Zephyr Setup](../onboarding/zephyr-setup.md)
+2. Follow [Zephyr Setup](../onboarding.md)
 3. Dongle in USB bootloader mode (hold reset while plugging in)
 
 ### Python station (`driver/`)
@@ -85,12 +85,13 @@ cd robot && idf.py -B build build
 
 ### Put the dongle in bootloader mode
 
-Hold the **small reset button** (not the user button) while plugging the dongle into USB. The dongle enters Nordic Bootloader DFU mode  a red LED should fade in/out or the device should enumerate as a DFU device.
+Press the **small reset button** (the small white sideways attached button). The dongle enters Nordic Bootloader DFU mode  a red LED should fade in/out or the device should enumerate as a DFU device.
 
 On macOS you should see a new `JLINK` mass-storage drive or a DFU serial port appear.
 
-### Via flash script
+If you are on macOS you can choose between flash script and going through the NRF Connect App. On Windows you have to go thorugh the app as the scripts are not compatible with windows yet.
 
+### Via flash script
 ```bash
 python scripts/flash.py --dongle
 ```
@@ -107,7 +108,6 @@ python scripts/build-dongle.py           # build only
 python scripts/build-dongle.py flash     # build + flash
 python scripts/build-dongle.py clean     # clean build directory
 ```
-
 ### Environment configuration
 
 If `west` is not in your PATH, copy the example environment file and fill in your SDK path:
@@ -116,7 +116,12 @@ If `west` is not in your PATH, copy the example environment file and fill in you
 cp radio-dongle/local/ncs.env.example radio-dongle/local/ncs.env
 # Edit ncs.env and set NCS_TOOLCHAIN and NCS_SDK paths
 ```
+### Via NRF Connect App and VSCode extension (Manually)
 
+1. Add build configuration in the NRF Connect SDK VSCode extension, select the ```nrf52840dongle/nrf52840 ``` board and generate
+2. Open the Programmer in the NRF Connect App and select the device(Should show up as DFU Bootloader if put into bootloader mode using the white sideways button)
+3. Add the hex file from path  ``` ~\TimeCrunchSoftware\radio-dongle\build\radio-dongle\zephyr\zephyr.hex ``` and doublecheck it does not overwrite the bootloader section of the memory then press write to flash the dongle
+   
 ---
 
 ## Flashing Weapon Motor Utility (`weapon-motor/`)
@@ -195,7 +200,4 @@ D (1305) MAIN: RX: L=127 R=127 W=  0 F=  0
 
 ## See Also
 
-- [ESP-IDF Setup](../onboarding/esp-idf-setup.md)
-- [Zephyr Setup](../onboarding/zephyr-setup.md)
-- [First Bringup](../onboarding/first-bringup.md)
-- [Debugging Workflow](../onboarding/debugging-workflow.md)
+- [Onboarding](../onboarding.md)

@@ -208,6 +208,6 @@ Identical effect to the killswitch. `temp_critical` is evaluated on **every rece
 
 ## See Also
 
-- [Architecture](../architecture.md)
+- [Architecture](architecture.md)
 - [Robot Firmware](firmware/robot-firmware.md)
 - [Radio Dongle Firmware](firmware/radio-dongle.md)
