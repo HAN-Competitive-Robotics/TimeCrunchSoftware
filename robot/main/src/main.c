@@ -150,6 +150,9 @@ void task_core1(void *pvParameters)
     while (1) {
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(10));
 
+        ESP_LOGD(TAG, "RPM: %f", encoder_get_rpm());
+    
+
         robot_state_t new_state;
         if (xQueueReceive(state_queue, &new_state, 0) == pdTRUE) {
             state = new_state;
@@ -185,7 +188,7 @@ void task_temp(void *pvParameters)
                  temp_get_temperature(TEMP_RIGHT_WHEEL),
                  temp_get_temperature(TEMP_WEAPON),
                  encoder_get_rpm());
-        ESP_LOGD(TAG, "CURR: 1=%.1f 2=%.1f 3=%.1f VOLT=%.1f", power_sensor_get_current(POWER_LEFT_WHEEL), power_sensor_get_current(POWER_RIGHT_WHEEL), power_sensor_get_current(POWER_WEAPON), power_sensor_get_voltage());
+        // ESP_LOGD(TAG, "CURR: 1=%.1f 2=%.1f 3=%.1f VOLT=%.1f", power_sensor_get_current(POWER_LEFT_WHEEL), power_sensor_get_current(POWER_RIGHT_WHEEL), power_sensor_get_current(POWER_WEAPON), power_sensor_get_voltage());
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

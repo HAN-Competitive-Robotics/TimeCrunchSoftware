@@ -7,7 +7,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 
-#define SAMPLE_INTERVAL_MS  100
+#define SAMPLE_INTERVAL_MS  20
 #define GLITCH_FILTER_NS    1000
 
 // RPM = count * (60 / sample_interval_s) / pulses_per_rev

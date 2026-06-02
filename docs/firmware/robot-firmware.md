@@ -4,7 +4,7 @@
 
 The robot firmware is an ESP-IDF project running on an ESP32 DevKit. It manages all real-time hardware interfaces: radio reception, motor control, weapon speed control, thermal safety, and encoder feedback.
 
-**Entry point:** `robot/main/src/main.c`  `app_main()`  
+**Entry point:** `robot/main/src/main.c` `app_main()`  
 **Build system:** ESP-IDF (CMake-based, `idf.py` toolchain)  
 **RTOS:** FreeRTOS (bundled with ESP-IDF)
 
@@ -67,9 +67,10 @@ void task_core0(void *pvParameters)
 ```
 
 The ordering matters:
+
 - `motor_driver_init()` first so all ESC signals are at neutral (1500 µs) immediately
 - `tempsensor_driver_init()` before `weapon_controller_init()` (sensor data must be available for the PI's first safety check)
-- `nrf24_init_irq()` last  no interrupts fire before the hardware is fully configured
+- `nrf24_init_irq()` last no interrupts fire before the hardware is fully configured
 
 ---
 
@@ -79,7 +80,7 @@ The ordering matters:
 
 **All three motors use one MCPWM timer.** They share the same 50 Hz timer but each has its own operator, comparator, and generator. This synchronises all ESC signals but uses only one timer resource.
 
-**The thermal gate is in the driver, not the caller.** `motor_set_throttle` silently ignores commands when the thermal cutoff is active. Callers do not need to check temperature themselves. This centralises the safety logic.
+**The thermal gate is in the driver, not the caller.** `motor_set_throttle` silently ignores commands when the thermal cutoff is active. Callers do not need to check temperature themselves.
 
 **`apply_throttle_direct` is private.** It bypasses the thermal gate and should only be called by `motor_safety_check` to enforce zero throttle under cutoff. If you add a new caller of `apply_throttle_direct`, you must understand you are bypassing the safety gate.
 
@@ -99,6 +100,7 @@ static void apply_throttle_direct(motor_t motor, int throttle)
 Every nRF24 access is a SPI transaction: `csn_low()` → transfer bytes → `csn_high()`. The `spi_transfer()` function performs this atomically using ESP-IDF's `spi_device_polling_transmit`.
 
 **Polling transmit** (not DMA, not interrupt-driven) is used because:
+
 - Transactions are short (max 33 bytes)
 - Polling latency is lower than DMA setup for short transactions
 - Task_core0 calls SPI from a task context (not ISR), so blocking is acceptable
@@ -130,9 +132,9 @@ All nRF24L01+ register addresses, command codes, and bit masks are defined in `n
 
 ### BMP280 usage
 
-The BMP280 is a barometric pressure and temperature sensor. Only its **temperature channel** is used here  the pressure measurements are discarded. This is a pragmatic choice: BMP280 modules are inexpensive, widely available, and measure temperature accurately enough for thermal protection.
+The BMP280 is a barometric pressure and temperature sensor. Only its **temperature channel** is used here the pressure measurements are discarded. BMP280 modules are inexpensive, widely available, and measure temperature accurately enough for thermal protection.
 
-> **Chip ID check:** The driver reads `BMP280_CHIP_ID` (0xD0) register and compares to 0x58. BME280 (the humidity variant) returns 0x60 at the same register. If you accidentally have BME280 modules, the driver will log a warning but continue  the compensation formula is compatible. Update `BMP280_CHIP_ID` to 0x60 or remove the check if using BME280.
+> **Chip ID check:** The driver reads `BMP280_CHIP_ID` (0xD0) register and compares to 0x58. BME280 (the humidity variant) returns 0x60 at the same register. If you accidentally have BME280 modules, the driver will log a warning but continue the compensation formula is compatible. Update `BMP280_CHIP_ID` to 0x60 or remove the check if using BME280.
 
 ### Temperature compensation
 
@@ -158,7 +160,7 @@ ctrl_meas = 0x23:
   mode   = 11  (normal mode  continuous measurement)
 ```
 
-In normal mode the BMP280 measures continuously. The `standby time` (config register = 0x00) is 0.5 ms, so new measurements are available every ~2 ms. The firmware reads whenever `temp_get_temperature()` is called  there is no explicit synchronisation with the BMP280's measurement cycle, but at 50 Hz polling the occasional stale reading is acceptable.
+In normal mode the BMP280 measures continuously. The `standby time` (config register = 0x00) is 0.5 ms, so new measurements are available every ~2 ms. The firmware reads whenever `temp_get_temperature()` is called there is no explicit synchronisation with the BMP280's measurement cycle, but at 50 Hz polling the occasional stale reading is acceptable.
 
 ---
 
@@ -175,6 +177,7 @@ mcpwm_timer_config_t timer_config = {
 ```
 
 Throttle-to-ticks conversion:
+
 ```c
 uint32_t ticks = PWM_TICKS_MIN +
     (uint32_t)((throttle + 100) * (PWM_TICKS_MAX - PWM_TICKS_MIN) / 200);
@@ -204,6 +207,7 @@ The weapon runs a **PI controller with feedforward** at 100 Hz on Core 1.
 ```
 
 Control law:
+
 ```
 output = FF + KP × error + KI × ∫error·dt
   where error = target_rpm − measured_rpm
@@ -217,6 +221,7 @@ output clamped to [0, 100]
 **Encoder lag:** The PCNT samples every 100 ms, but the weapon loop runs at 100 Hz (10 ms). For 9 out of every 10 iterations the PI sees a stale RPM value. Effective closed-loop rate is 10 Hz, not 100 Hz. Keep gains conservative.
 
 **Tuning procedure when ready:**
+
 1. With KP=KI=0, adjust `WEAPON_FF` until the weapon reaches approximately target RPM at nominal battery voltage under no load.
 2. Increase `KP` until the weapon responds quickly to disturbances without oscillating. Starting range: 0.002–0.01 (% throttle per RPM error).
 3. Add a small `KI` (e.g. 0.0005) to eliminate steady-state error under load.
