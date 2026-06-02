@@ -15,7 +15,7 @@ Pin 7: MISO         →       GPIO 19
 Pin 8: IRQ          →       GPIO 27
 ```
 
-> **Critical:** The nRF24L01+ module operates at 3.3 V. Connecting VCC to the 5 V pin on the ESP32 DevKit will destroy the module immediately. Most ESP32 DevKit boards label both a 3V3 and a VIN/5V pin.
+> **Critical:** The nRF24L01+ module operates at 3.3 V. Connecting VCC to the 5 V pin on the ESP32 DevKit is not good for the module. Most ESP32 DevKit boards label both a 3V3 and a VIN/5V pin.
 
 **Decoupling capacitor (recommended):** Place a 10–100 µF electrolytic capacitor between the nRF24 module's VCC and GND pins, physically as close to the module as possible. This suppresses the voltage spikes caused by the radio's transmit current draw (~11 mA peak) and prevents RF instability.
 
