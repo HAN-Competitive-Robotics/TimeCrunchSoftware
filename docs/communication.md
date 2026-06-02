@@ -27,7 +27,8 @@ throttle = ((int)b - 127) * 100 / 127
 // b=255 → +100 (full forward, approximately)
 ```
 
-Tank drive: left stick Y → byte 0, right stick Y → byte 1. Arcade drive: mixing happens in the station before serialisation.
+Tank drive: left stick Y → byte 0, right stick Y → byte 1. 
+Arcade drive: mixing happens in the station before serialisation.
 
 **Byte 2 — Weapon Throttle**
 
