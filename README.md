@@ -15,12 +15,12 @@ One-way radio control system for a battlebot using Nordic ESB (Enhanced ShockBur
 
 ## Structure
 
-| Directory | Hardware | Stack | Role |
-|-----------|----------|-------|------|
-| [`radio-dongle/`](radio-dongle/) | nRF52840 USB Dongle | Zephyr RTOS + Nordic ESB | Bridges USB CDC serial → 2.4 GHz radio |
-| [`robot/`](robot/) | ESP32 DevKit + nRF24L01+ | ESP-IDF (FreeRTOS) | Receives packets, drives motors / weapon |
-| [`weapon-motor/`](weapon-motor/) | ESP32 DevKit | ESP-IDF (FreeRTOS) | Standalone weapon ESC calibration & test |
-| [`driver/`](driver/) | Laptop | Python + Pygame + PySerial | Ground station with gamepad / keyboard input |
+| Directory                        | Hardware                 | Stack                      | Role                                         |
+| -------------------------------- | ------------------------ | -------------------------- | -------------------------------------------- |
+| [`radio-dongle/`](radio-dongle/) | nRF52840 USB Dongle      | Zephyr RTOS + Nordic ESB   | Bridges USB CDC serial → 2.4 GHz radio       |
+| [`robot/`](robot/)               | ESP32 DevKit + nRF24L01+ | ESP-IDF (FreeRTOS)         | Receives packets, drives motors / weapon     |
+| [`weapon-motor/`](weapon-motor/) | ESP32 DevKit             | ESP-IDF (FreeRTOS)         | Standalone weapon ESC calibration & test     |
+| [`driver/`](driver/)             | Laptop                   | Python + Pygame + PySerial | Ground station with gamepad / keyboard input |
 
 ## Prerequisites
 
@@ -47,7 +47,8 @@ One-way radio control system for a battlebot using Nordic ESB (Enhanced ShockBur
 
 Flash both devices and open the robot monitor. Ports are auto-detected on all platforms.
 
-**Any OS:**
+**Any OS (except Windows), maybe Linux (our developer has a mac type shit):**
+
 ```bash
 python scripts/flash.py                    # interactive menu
 python scripts/flash.py --both             # flash robot + dongle + monitor
@@ -68,6 +69,7 @@ python scripts/flash.py --weapon-test      # flash weapon-motor test
 ```
 
 If auto-detection fails, pass the port manually:
+
 ```bash
 ./robot/idf -p /dev/cu.usbserial-0001 flash monitor
 ```
@@ -96,14 +98,14 @@ python scripts/find-ports.py
 
 ## Radio Config
 
-| Parameter | Value |
-|-----------|-------|
+| Parameter    | Value                     |
+| ------------ | ------------------------- |
 | **Protocol** | Enhanced ShockBurst (ESB) |
-| **Channel** | 40 |
-| **Bitrate** | 2 Mbps |
-| **Payload** | 4 bytes |
-| **Address** | `1NODE` (5 bytes) |
-| **CRC** | 2 bytes |
+| **Channel**  | 40                        |
+| **Bitrate**  | 2 Mbps                    |
+| **Payload**  | 4 bytes                   |
+| **Address**  | `1NODE` (5 bytes)         |
+| **CRC**      | 2 bytes                   |
 
 ## Packet Format
 
@@ -115,34 +117,34 @@ The driver station sends 5 bytes at 50 Hz:
 
 Each value is a raw byte (`0–255`). Center for motors is `127`.
 
-| Byte | Meaning | Range |
-|------|---------|-------|
-| 0 | Left motor throttle | 0–255 (127 = stop) |
-| 1 | Right motor throttle | 0–255 (127 = stop) |
-| 2 | Weapon throttle | 0 = off, 1–127 = idle, 128–255 = attack |
-| 3 | Killswitch trigger | 0 = normal, 255 = deep sleep |
+| Byte | Meaning              | Range                                   |
+| ---- | -------------------- | --------------------------------------- |
+| 0    | Left motor throttle  | 0–255 (127 = stop)                      |
+| 1    | Right motor throttle | 0–255 (127 = stop)                      |
+| 2    | Weapon throttle      | 0 = off, 1–127 = idle, 128–255 = attack |
+| 3    | Killswitch trigger   | 0 = normal, 255 = deep sleep            |
 
 ---
 
 ## Safety Features
 
-- **500 ms packet timeout**  If the robot receives no packets for 500 ms, all motors stop automatically.
-- **Killswitch**  Holding the killswitch (gamepad B / keyboard `F`) immediately stops all motors and sends the ESP32 into deep sleep. Only a power cycle recovers the robot.
-- **Thermal cutoff**  If any motor temperature exceeds 100 °C (or a sensor fails / returns NAN), throttle is cut to 0.
-- **Weapon PI controller**  Closed-loop speed control with anti-windup (tune `WEAPON_KP` / `WEAPON_KI` in `weapon_controller.h`).
+- **500 ms packet timeout** If the robot receives no packets for 500 ms, all motors stop automatically.
+- **Killswitch** Holding the killswitch (gamepad B / keyboard `F`) immediately stops all motors and sends the ESP32 into deep sleep. Only a power cycle recovers the robot.
+- **Thermal cutoff** If any motor temperature exceeds 100 °C (or a sensor fails / returns NAN), throttle is cut to 0.
+- **Weapon PI controller** Closed-loop speed control with anti-windup (tune `WEAPON_KP` / `WEAPON_KI` in `weapon_controller.h`).
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
-|---------|--------------|-----|
-| `ModuleNotFoundError: No module named 'serial'` | `pyserial` not installed | `pip3 install pyserial` |
-| `ESP-IDF not found at ~/esp/esp-idf` | ESP-IDF installed elsewhere or not installed | Set `IDF_PATH` or reinstall ESP-IDF to `~/esp/esp-idf` |
-| `west not found in PATH` | nRF Connect SDK environment not activated | Run `ncs-env` or copy `radio-dongle/local/ncs.env.example` to `ncs.env` and fill in paths |
-| Dongle flashes but robot doesn't respond | Wrong channel / address mismatch | Verify both firmwares use channel 40 and address `1NODE` |
-| Robot stops after ~500 ms | Packet timeout triggered | Check that the driver station is running and the dongle is plugged in |
-| Ground station quits when pressing Escape | Escape is mapped to quit in Pygame | Use `F` for killswitch (changed in recent versions) |
+| Symptom                                         | Likely Cause                                 | Fix                                                                                       |
+| ----------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ModuleNotFoundError: No module named 'serial'` | `pyserial` not installed                     | `pip3 install pyserial`                                                                   |
+| `ESP-IDF not found at ~/esp/esp-idf`            | ESP-IDF installed elsewhere or not installed | Set `IDF_PATH` or reinstall ESP-IDF to `~/esp/esp-idf`                                    |
+| `west not found in PATH`                        | nRF Connect SDK environment not activated    | Run `ncs-env` or copy `radio-dongle/local/ncs.env.example` to `ncs.env` and fill in paths |
+| Dongle flashes but robot doesn't respond        | Wrong channel / address mismatch             | Verify both firmwares use channel 40 and address `1NODE`                                  |
+| Robot stops after ~500 ms                       | Packet timeout triggered                     | Check that the driver station is running and the dongle is plugged in                     |
+| Ground station quits when pressing Escape       | Escape is mapped to quit in Pygame           | Use `F` for killswitch (changed in recent versions)                                       |
 
 ---
 
