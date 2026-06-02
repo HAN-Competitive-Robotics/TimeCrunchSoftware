@@ -108,7 +108,6 @@ Three primitives are used; nothing else is needed:
 
 ## Safety Architecture
 
-Every safety mechanism triggers on the *absence of a safe condition*, not the presence of a danger signal — fail-safe by default.
 
 ```mermaid
 stateDiagram-v2
@@ -118,8 +117,8 @@ stateDiagram-v2
     Normal --> HardFailsafe : killswitch byte OR any sensor ≥ 90°C
     HardFailsafe --> DeepSleep : immediate
     DeepSleep --> [*] : power cycle required
-    Normal --> MotorCutoff : motor temp ≥ 100°C
-    MotorCutoff --> Normal : motor temp < 90°C (hysteresis)
+    Normal --> MotorCutoff : Weapon motor temp ≥ 100°C
+    MotorCutoff --> Normal : Weapon motor temp < 90°C (hysteresis)
 ```
 
 ### Packet Timeout (Soft Failsafe)
@@ -132,11 +131,11 @@ Packet byte 3 > 127 → stop motors, `esp_deep_sleep_start()`. Power cycle only 
 
 ### Thermal Deep Sleep (90 °C)
 
-Any temperature sensor ≥ 90 °C → same as killswitch. This check runs in `task_core0` on **every received packet** (50 Hz), not in the 1 Hz thermal task, so worst-case detection latency is 20 ms.
+Temperature sensor ≥ 90 °C → same as killswitch. This check runs in `task_core0` on **every received packet** (50 Hz), not in the 1 Hz thermal task, so worst-case detection latency is 20 ms.
 
-### Per-Motor Thermal Cutoff (100 °C)
+### Thermal Cutoff (100 °C)
 
-Any motor ≥ 100 °C → zero throttle for that motor only, with 10 °C hysteresis on recovery. Implemented in `motor_safety_check()` via `task_temp`. This is the only reversible thermal protection.
+Weapon motor ≥ 100 °C → zero throttle for that motor only, with 10 °C hysteresis on recovery. Implemented in `motor_safety_check()` via `task_temp`. This is the only reversible thermal protection.
 
 ### Arm/Disarm and Weapon State Machine
 
