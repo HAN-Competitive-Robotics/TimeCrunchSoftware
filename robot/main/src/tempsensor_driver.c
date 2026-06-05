@@ -16,7 +16,8 @@
 #define BMP280_REG_CTRL_MEAS 0xF4
 #define BMP280_REG_TEMP_MSB  0xFA
 
-#define BMP280_CHIP_ID  0x58  // BMP280=0x58, BME280=0x60  verify against your hardware
+#define BMP280_CHIP_ID  0x58  // BMP280
+#define BME280_CHIP_ID  0x60  // BME280 (same temp registers/compensation)
 
 // ctrl_meas: osrs_t=x1 (001), osrs_p=skip (000), mode=normal (11) → 0x23
 #define BMP280_CTRL_VAL 0x23
@@ -61,11 +62,12 @@ static void init_sensor(sensor_cfg_t *s)
         ESP_LOGW(TAG, "I2C read failed for sensor at bus=%d addr=0x%02X", s->bus, s->addr);
         return;
     }
-    if (chip_id != BMP280_CHIP_ID) {
-        ESP_LOGW(TAG, "Unexpected chip ID 0x%02X (expected 0x%02X) at bus=%d addr=0x%02X  check sensor type",
-                 chip_id, BMP280_CHIP_ID, s->bus, s->addr);
+    if (chip_id != BMP280_CHIP_ID && chip_id != BME280_CHIP_ID) {
+        ESP_LOGW(TAG, "Unexpected chip ID 0x%02X (expected 0x%02X or 0x%02X) at bus=%d addr=0x%02X  check sensor type",
+                 chip_id, BMP280_CHIP_ID, BME280_CHIP_ID, s->bus, s->addr);
         return;
     }
+    ESP_LOGI(TAG, "Found sensor chip=0x%02X bus=%d addr=0x%02X", chip_id, s->bus, s->addr);
 
     // Read 6 calibration bytes starting at 0x88
     uint8_t raw[6];
@@ -89,10 +91,12 @@ void tempsensor_driver_init(void)
     ESP_ERROR_CHECK(i2c_bus_init(I2C_NUM_1, TEMP_I2C1_SDA, TEMP_I2C1_SCL,
                                  I2C_BUS_DEFAULT_FREQ_HZ));
 
+    int ok = 0;
     for (int i = 0; i < TEMP_COUNT; i++) {
         init_sensor(&s_sensors[i]);
+        if (s_sensors[i].calib.dig_T1 != 0) ok++;
     }
-    ESP_LOGI(TAG, "Temp sensors init OK");
+    ESP_LOGI(TAG, "Temp sensors init: %d/%d OK", ok, TEMP_COUNT);
 }
 
 float temp_get_temperature(temp_sensor_t sensor)
@@ -100,6 +104,9 @@ float temp_get_temperature(temp_sensor_t sensor)
     if (sensor >= TEMP_COUNT) return NAN;
 
     sensor_cfg_t *s = &s_sensors[sensor];
+    if (s->calib.dig_T1 == 0) {
+        return NAN;  // sensor was not initialized successfully
+    }
 
     uint8_t raw[3];
     if (bmp280_read(s, BMP280_REG_TEMP_MSB, raw, sizeof(raw)) != ESP_OK) {

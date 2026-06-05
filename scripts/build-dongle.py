@@ -25,6 +25,17 @@ def error(msg):
     sys.exit(1)
 
 
+def _is_wsl():
+    if platform.system() != "Linux":
+        return False
+    if "WSL_DISTRO_NAME" in os.environ or "WSLENV" in os.environ:
+        return True
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except Exception:
+        return False
+
+
 def find_west():
     west = shutil.which("west")
     if west:
@@ -38,20 +49,50 @@ def find_west():
                 ncs_toolchain = line.split("=", 1)[1].strip().strip('"')
         if ncs_toolchain:
             import glob
-            search_patterns = [
-                f"{ncs_toolchain}/bin/west",
-                f"{ncs_toolchain}/usr/bin/west",
-                f"{ncs_toolchain}/Cellar/python@*/**/bin/west",
-            ]
+            tc = Path(ncs_toolchain)
+            if platform.system() == "Windows":
+                search_patterns = [
+                    str(tc / "bin" / "west.exe"),
+                    str(tc / "usr" / "bin" / "west.exe"),
+                ]
+            else:
+                search_patterns = [
+                    f"{ncs_toolchain}/bin/west",
+                    f"{ncs_toolchain}/usr/bin/west",
+                    f"{ncs_toolchain}/Cellar/python@*/**/bin/west",
+                ]
             for pattern in search_patterns:
                 matches = glob.glob(pattern)
                 if matches:
                     return matches[0]
 
+    if _is_wsl():
+        import glob
+        wsl_patterns = [
+            "/mnt/c/ncs/toolchains/*/bin/west*",
+            "/mnt/c/ncs/toolchains/*/usr/bin/west*",
+        ]
+        for pattern in wsl_patterns:
+            matches = sorted(glob.glob(pattern))
+            if matches:
+                return matches[0]
+
+    wsl_hint = ""
+    if _is_wsl():
+        wsl_hint = (
+            "\n  WSL detected. Either:\n"
+            "    1. Install nRF Connect SDK inside WSL, or\n"
+            "    2. Create radio-dongle/local/ncs.env pointing to your Windows NCS install:\n"
+            '       NCS_TOOLCHAIN=/mnt/c/ncs/toolchains/<hash>\n'
+            '       NCS_SDK=/mnt/c/ncs/<version>'
+        )
+
     error(
         "'west' not found in PATH.\n"
         "  macOS/Linux: copy radio-dongle/local/ncs.env.example to ncs.env and fill in your paths.\n"
-        "  Windows:     ensure west is in your PATH (e.g. from nRF Connect SDK installation)."
+        "  Windows:     ensure west is in your PATH (e.g. from nRF Connect SDK installation),\n"
+        "               or set NCS_TOOLCHAIN in radio-dongle/local/ncs.env."
+        + wsl_hint
     )
 
 
@@ -67,11 +108,36 @@ def find_nrfutil():
             if line.startswith("NCS_TOOLCHAIN="):
                 ncs_toolchain = line.split("=", 1)[1].strip().strip('"')
         if ncs_toolchain:
-            mac_nrfutil = Path(ncs_toolchain) / "nrfutil" / "home" / "bin" / "nrfutil"
-            if mac_nrfutil.exists():
-                return str(mac_nrfutil)
+            tc = Path(ncs_toolchain)
+            if platform.system() == "Windows":
+                win_nrfutil = tc / "nrfutil" / "home" / "bin" / "nrfutil.exe"
+                if win_nrfutil.exists():
+                    return str(win_nrfutil)
+            else:
+                mac_nrfutil = tc / "nrfutil" / "home" / "bin" / "nrfutil"
+                if mac_nrfutil.exists():
+                    return str(mac_nrfutil)
 
-    error("'nrfutil' not found in PATH.")
+    if _is_wsl():
+        import glob
+        wsl_patterns = [
+            "/mnt/c/ncs/toolchains/*/nrfutil/home/bin/nrfutil*",
+        ]
+        for pattern in wsl_patterns:
+            matches = sorted(glob.glob(pattern))
+            if matches:
+                return matches[0]
+
+    wsl_hint = ""
+    if _is_wsl():
+        wsl_hint = (
+            "\n  WSL detected. Either:\n"
+            "    1. Install nRF Connect SDK inside WSL, or\n"
+            "    2. Create radio-dongle/local/ncs.env pointing to your Windows NCS install:\n"
+            '       NCS_TOOLCHAIN=/mnt/c/ncs/toolchains/<hash>'
+        )
+
+    error("'nrfutil' not found in PATH." + wsl_hint)
 
 
 def setup_env():
@@ -152,7 +218,11 @@ def flash(key_file=None):
         (local_nrfutil_home / "bin").mkdir(parents=True, exist_ok=True)
         device_cmd = Path(env.get("NRFUTIL_HOME", "")) / "bin" / "nrfutil-device"
         if device_cmd.exists():
-            (local_nrfutil_home / "bin" / "nrfutil-device").symlink_to(device_cmd)
+            dest = local_nrfutil_home / "bin" / "nrfutil-device"
+            try:
+                dest.symlink_to(device_cmd)
+            except OSError:
+                shutil.copy2(str(device_cmd), str(dest))
         env["NRFUTIL_HOME"] = str(local_nrfutil_home)
         subprocess.run([nrfutil, "install", "nrf5sdk-tools"], env=env, check=True)
 
@@ -172,10 +242,20 @@ def flash(key_file=None):
     subprocess.run(pkg_cmd, env=env, check=True)
 
     info("Programming...")
-    subprocess.run(
-        [nrfutil, "device", "program", "--firmware", str(zip_file), "--traits", "nordicDfu"],
-        env=env, check=True,
-    )
+    try:
+        subprocess.run(
+            [nrfutil, "device", "program", "--firmware", str(zip_file), "--traits", "nordicDfu"],
+            env=env, check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        error(
+            "No DFU-capable device found.\n"
+            "  Put the nRF52840 dongle in bootloader mode first:\n"
+            "    1. Unplug the dongle\n"
+            "    2. Hold the reset button\n"
+            "    3. Plug it in while holding the button\n"
+            "    4. Release the button — the LED should pulse"
+        )
     info("Flash complete.")
 
 

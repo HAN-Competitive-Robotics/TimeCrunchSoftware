@@ -86,23 +86,63 @@ def check_port_available(port):
                         info(f"Process holding the port:\n{result.stdout.strip()}")
                 except Exception:
                     pass
+            elif platform.system() == "Windows":
+                info(
+                    "Check Resource Monitor (resmon.exe) → CPU tab → Associated Handles "
+                    f"and search for '{port}' to find the process using this port."
+                )
             error(
                 f"Cannot open {port}.\n"
                 "Close any monitor/screen/minicom sessions first, then retry.\n"
-                "  pkill -f monitor"
+                "  Linux/macOS: pkill -f monitor\n"
+                "  Windows:     close the serial terminal or IDE holding the port"
             )
         return True
 
 
-def _idf_path():
-    idf_path = Path.home() / "esp" / "esp-idf"
+def _is_valid_idf_path(idf_path):
+    if not idf_path or not idf_path.exists():
+        return False
     if platform.system() == "Windows":
-        if not any((idf_path / f).exists() for f in ("export.bat", "export.ps1")):
-            error(f"ESP-IDF not found at {idf_path}. Install it or set IDF_PATH.")
-    else:
-        if not (idf_path / "export.sh").exists():
-            error(f"ESP-IDF not found at {idf_path}. Install it or set IDF_PATH.")
-    return idf_path
+        return any((idf_path / f).exists() for f in ("export.bat", "export.ps1"))
+    return (idf_path / "export.sh").exists()
+
+
+def _idf_path():
+    env_idf = os.environ.get("IDF_PATH")
+    if env_idf:
+        idf_path = Path(env_idf)
+        if _is_valid_idf_path(idf_path):
+            return idf_path
+
+    candidates = [Path.home() / "esp" / "esp-idf"]
+    if platform.system() == "Windows":
+        candidates += [
+            Path("C:/esp/esp-idf"),
+            Path(os.environ.get("USERPROFILE", "")) / "esp" / "esp-idf",
+            Path(os.environ.get("PROGRAMFILES", "")) / "Espressif" / "esp-idf",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Espressif" / "esp-idf",
+        ]
+
+    for idf_path in candidates:
+        if _is_valid_idf_path(idf_path):
+            return idf_path
+
+    error(
+        "ESP-IDF not found.\n"
+        "  • Set the IDF_PATH environment variable, or\n"
+        "  • Install ESP-IDF to ~/esp/esp-idf (or C:\\esp\\esp-idf on Windows)."
+    )
+
+
+def _find_idf_py(idf_path):
+    idf_py = shutil.which("idf.py")
+    if idf_py:
+        return idf_py
+    fallback = idf_path / "tools" / "idf.py"
+    if fallback.exists():
+        return str(fallback)
+    error("idf.py not found in PATH or IDF_PATH/tools/.")
 
 
 def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True, monitor=True):
@@ -111,9 +151,7 @@ def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True,
     env["IDF_PATH"] = str(idf_path)
 
     if platform.system() == "Windows":
-        idf_py = shutil.which("idf.py")
-        if not idf_py:
-            error("idf.py not found in PATH.")
+        idf_py = _find_idf_py(idf_path)
         cmd = [sys.executable, idf_py, "-B", build_dir]
         if extra_cmake:
             cmd += extra_cmake.split()
@@ -150,7 +188,7 @@ def build_robot_only():
     env = os.environ.copy()
     env["IDF_PATH"] = str(idf_path)
     if platform.system() == "Windows":
-        idf_py = shutil.which("idf.py")
+        idf_py = _find_idf_py(idf_path)
         subprocess.run([sys.executable, idf_py, "-B", "build", "build"],
                        cwd=ROBOT_DIR, env=env, check=True)
     else:
@@ -161,13 +199,19 @@ def build_robot_only():
 def flash_dongle():
     info("Building + flashing nRF52840 dongle...")
     build_script = REPO_ROOT / "scripts" / "build-dongle.py"
-    subprocess.run([sys.executable, str(build_script), "flash"], check=True)
+    try:
+        subprocess.run([sys.executable, str(build_script), "flash"], check=True)
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
 
 
 def build_dongle_only():
     info("Building nRF52840 dongle...")
     build_script = REPO_ROOT / "scripts" / "build-dongle.py"
-    subprocess.run([sys.executable, str(build_script), "build"], check=True)
+    try:
+        subprocess.run([sys.executable, str(build_script), "build"], check=True)
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
 
 
 def flash_weapon_motor(port, mode, monitor=True):
