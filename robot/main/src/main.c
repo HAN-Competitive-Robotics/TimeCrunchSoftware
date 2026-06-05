@@ -31,6 +31,10 @@ static TaskHandle_t   h_temp  = NULL;
 /* Center of the 0–255 packet range, per the protocol spec. */
 #define PACKET_CENTER 127
 
+/* System-level thermal shutdown threshold. 10 °C below MOTOR_TEMP_LIMIT_C so
+ * the robot enters deep-sleep before per-motor cutoffs fire one by one. */
+#define KILLSWITCH_TEMP_C 90.0f
+
 static int map_byte_to_throttle(uint8_t b)
 {
     return ((int)b - PACKET_CENTER) * 100 / PACKET_CENTER;
@@ -87,10 +91,6 @@ void task_core0(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
                              left_raw, right_raw, weapon_raw, failsafe_raw);
 
-                    /* 90 °C triggers deep-sleep killswitch  10 °C below the per-motor
-                     * throttle cutoff (MOTOR_TEMP_LIMIT_C = 100 °C) so an overheating
-                     * robot shuts down before individual motors are cut one by one. */
-                    #define KILLSWITCH_TEMP_C 90.0f
                     bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
                                         temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
                                         temp_get_temperature(TEMP_WEAPON)      >= KILLSWITCH_TEMP_C;

@@ -1,5 +1,5 @@
 {
-  "_comment": "Edit this file to change controls. Run 'python station.py --calibrate' to see your gamepad axis/button numbers.",
+  "_comment": "Serial, packet, and UI settings. Controls (keybinds/gamepad) are stored in profiles.json and edited via the in-app keybind editor (F2).",
   "serial": {
     "port": "auto",
     "baudrate": 115200,
@@ -9,96 +9,6 @@
     "order": ["motor_left", "motor_right", "weapon", "failsafe"],
     "range": [0, 255],
     "center": 127
-  },
-  "inputs": {
-    "motor_left": {
-      "type": "axis",
-      "gamepad": {
-        "axis": 1,
-        "invert": true,
-        "deadzone": 0.15
-      },
-      "keyboard": {
-        "positive": "w",
-        "negative": "s",
-        "rate": 8
-      },
-      "expo": 0.0
-    },
-    "motor_right": {
-      "type": "axis",
-      "gamepad": {
-        "axis": 3,
-        "invert": true,
-        "deadzone": 0.15
-      },
-      "keyboard": {
-        "positive": "up",
-        "negative": "down",
-        "rate": 8
-      },
-      "expo": 0.0
-    },
-    "weapon": {
-      "type": "button",
-      "gamepad": {
-        "button": 10
-      },
-      "keyboard": "space",
-      "off_value": 0,
-      "on_value": 255
-    },
-    "weapon_rev": {
-      "type": "button",
-      "gamepad": {
-        "axis": 5,
-        "threshold": 0.5
-      },
-      "keyboard": "lshift",
-      "off_value": 0,
-      "on_value": 255
-    },
-    "failsafe": {
-      "type": "button",
-      "gamepad": {
-        "button": 1
-      },
-      "keyboard": "f",
-      "off_value": 0,
-      "on_value": 255
-    },
-    "drive_invert": {
-      "type": "button",
-      "gamepad": {
-        "button": 9
-      },
-      "keyboard": "i",
-      "off_value": 0,
-      "on_value": 255
-    },
-    "steer_x": {
-      "type": "axis",
-      "gamepad": {
-        "axis": 0,
-        "invert": false,
-        "deadzone": 0.15
-      },
-      "keyboard": {
-        "positive": "right",
-        "negative": "left",
-        "rate": 8
-      },
-      "expo": 0.0
-    },
-    "armed": {
-      "type": "button",
-      "gamepad": {
-        "button": 6
-      },
-      "keyboard": "a",
-      "off_value": 0,
-      "on_value": 255
-    }
   },
   "ui": {
     "width": 800,

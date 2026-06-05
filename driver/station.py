@@ -78,8 +78,7 @@ def main():
 
     running = True
     while running:
-        now    = pygame.time.get_ticks()
-        dt_ms  = now - last_tick
+        now       = pygame.time.get_ticks()
         last_tick = now
 
         for event in pygame.event.get():
@@ -225,10 +224,12 @@ def main():
         if kill_raw and not killswitch_triggered:
             killswitch_triggered = True
             gui.add_log("KILLSWITCH — robot latched until power cycle")
-            burst = bytes([127, 127, 0, 255]) + b"\n"
-            link.ensure_connected()
-            for _ in range(5):
-                link.send(burst)
+            burst = bytes([127, 127, 127, 255]) + b"\n"
+            if link.ensure_connected():
+                for _ in range(5):
+                    link.send(burst)
+            else:
+                gui.add_log("WARNING: killswitch sent but serial not connected")
         failsafe_byte = 255 if kill_raw else 0
 
         arm_raw = mapper.read_button("arm", keys)
@@ -252,7 +253,8 @@ def main():
                 gs["weapon_state"] = "idle"
         prev_weapon_btn = weapon_btn
 
-        weapon_byte = {"safe": 0, "idle": 64, "attack": 255}[gs["weapon_state"]]
+        # Protocol: 127=off, 128-190=idle fwd, 191-255=attack fwd (firmware main.c comment)
+        weapon_byte = {"safe": 127, "idle": 160, "attack": 255}[gs["weapon_state"]]
         packet = bytes([motor_l, motor_r, weapon_byte, failsafe_byte]) + b"\n"
 
         if now - last_send >= 1000 / rate_hz:

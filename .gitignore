@@ -7,4 +7,5 @@ node_modules/
 __pycache__
 venv/
 driver/venv/
+driver/profiles.json
 robot/sdkconfig

@@ -186,7 +186,7 @@ Expected boot output:
 I (xxx) MAIN: Initializing motor driver...
 I (xxx) MOTOR: MCPWM init OK: 3 motors on group 0
 I (xxx) MAIN: Initializing temperature sensors...
-I (xxx) TEMP: Temp sensors init OK
+I (xxx) TEMP: Temp sensors init: 3/3 OK
 I (xxx) MAIN: Initializing encoder...
 I (xxx) ENCODER: Encoder init OK: GPIO 15, 2 pulses/rev
 I (xxx) MAIN: Initializing nRF24...
@@ -212,7 +212,7 @@ cd driver && python station.py
 ```
 HUD should show `● SERIAL OK`. Dongle LED should blink. In robot serial monitor (with DEBUG logging):
 ```
-D (xxxx) MAIN: RX: L=127 R=127 W=  0 F=  0
+D (xxxx) MAIN: RX: L=127 R=127 W=127 F=  0
 ```
 
 ### Phase 6 — Motor Test (No Drive Belt / No Weapon Disc)
@@ -309,7 +309,7 @@ Expected: `ESB TX success` lines when the station is running.
 ```bash
 cd driver && python station.py --calibrate
 ```
-Move all sticks and press all buttons. Note axis numbers and update `driver/config.json`.
+Move all sticks and press all buttons to see axis and button numbers. Use the in-app keybind editor (F2) to rebind them.
 
 ### Common Crashes
 

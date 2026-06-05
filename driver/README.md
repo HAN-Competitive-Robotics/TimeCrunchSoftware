@@ -34,26 +34,7 @@ python station.py --calibrate
 
 ## Edit Controls
 
-Open `config.json` and change the mapping without touching code:
-
-```json
-{
-  "inputs": {
-    "motor_left": {
-      "type": "axis",
-      "gamepad": { "axis": 1, "invert": true, "deadzone": 0.15 },
-      "keyboard": { "positive": "w", "negative": "s", "rate": 8 }
-    },
-    "weapon": {
-      "type": "button",
-      "gamepad": { "button": 5 },
-      "keyboard": "space",
-      "off_value": 0,
-      "on_value": 255
-    }
-  }
-}
-```
+Press **F2** inside the station to open the keybind editor. Click any cell to select it, then click again (or press Enter) to rebind. Supports both keyboard and gamepad inputs. Profiles are saved automatically to `profiles.json`.
 
 Run `python station.py --calibrate` to discover your gamepad's axis and button numbers.
 

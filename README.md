@@ -47,7 +47,7 @@ One-way radio control system for a battlebot using Nordic ESB (Enhanced ShockBur
 
 Flash both devices and open the robot monitor. Ports are auto-detected on all platforms.
 
-**Any OS (except Windows), maybe Linux (our developer has a mac type shit):**
+**macOS / Linux / Windows:**
 
 ```bash
 python scripts/flash.py                    # interactive menu
@@ -117,12 +117,12 @@ The driver station sends 5 bytes at 50 Hz:
 
 Each value is a raw byte (`0–255`). Center for motors is `127`.
 
-| Byte | Meaning              | Range                                   |
-| ---- | -------------------- | --------------------------------------- |
-| 0    | Left motor throttle  | 0–255 (127 = stop)                      |
-| 1    | Right motor throttle | 0–255 (127 = stop)                      |
-| 2    | Weapon throttle      | 0 = off, 1–127 = idle, 128–255 = attack |
-| 3    | Killswitch trigger   | 0 = normal, 255 = deep sleep            |
+| Byte | Meaning              | Range                                                         |
+| ---- | -------------------- | ------------------------------------------------------------- |
+| 0    | Left motor throttle  | 0–255 (127 = stop)                                            |
+| 1    | Right motor throttle | 0–255 (127 = stop)                                            |
+| 2    | Weapon throttle      | 127 = off, 128–190 = idle, 191–255 = attack (forward only)    |
+| 3    | Killswitch trigger   | 0 = normal, 255 = deep sleep                                  |
 
 ---
 
@@ -173,7 +173,7 @@ npx prettier --write .
 │   └── main/src/       # Application code
 ├── driver/             # Python ground station
 │   ├── station.py      # Main GUI application
-│   ├── config.json     # Control mapping
+│   ├── config.json     # Serial / UI settings
 │   └── requirements.txt
 └── scripts/            # Cross-platform build & flash helpers
     ├── build-dongle.py
