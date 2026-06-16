@@ -64,7 +64,6 @@ def main():
     rate_hz    = cfg["serial"]["rate_hz"]
     start_time = pygame.time.get_ticks()
     last_send  = 0
-    last_tick  = pygame.time.get_ticks()
 
     gs = {
         "drive_inverted": False,
@@ -78,8 +77,7 @@ def main():
 
     running = True
     while running:
-        now       = pygame.time.get_ticks()
-        last_tick = now
+        now = pygame.time.get_ticks()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -195,6 +193,10 @@ def main():
         paused = gui.overlay_active or gui.current_screen != SCREEN_MAIN
 
         if paused:
+            if now - last_send >= 1000 / rate_hz:
+                if link.ensure_connected():
+                    link.send(b"7f7f7f00\n")
+                last_send = now
             gui.draw(link, mapper, profiles, 127, 127,
                      gs["drive_inverted"], armed, gs["weapon_state"], killswitch_triggered,
                      now - start_time)
@@ -224,13 +226,13 @@ def main():
         if kill_raw and not killswitch_triggered:
             killswitch_triggered = True
             gui.add_log("KILLSWITCH — robot latched until power cycle")
-            burst = bytes([127, 127, 127, 255]) + b"\n"
+            burst = b"7f7f7fff\n"
             if link.ensure_connected():
                 for _ in range(5):
                     link.send(burst)
             else:
                 gui.add_log("WARNING: killswitch sent but serial not connected")
-        failsafe_byte = 255 if kill_raw else 0
+        failsafe_byte = 255 if (kill_raw or killswitch_triggered) else 0
 
         arm_raw = mapper.read_button("arm", keys)
         if arm_raw and not prev_arm_raw:
@@ -253,9 +255,9 @@ def main():
                 gs["weapon_state"] = "idle"
         prev_weapon_btn = weapon_btn
 
-        # Protocol: 127=off, 128-190=idle fwd, 191-255=attack fwd (firmware main.c comment)
+        # Weapon: 127=safe, 160=idle fwd, 255=attack fwd
         weapon_byte = {"safe": 127, "idle": 160, "attack": 255}[gs["weapon_state"]]
-        packet = bytes([motor_l, motor_r, weapon_byte, failsafe_byte]) + b"\n"
+        packet = f"{motor_l:02x}{motor_r:02x}{weapon_byte:02x}{failsafe_byte:02x}\n".encode()
 
         if now - last_send >= 1000 / rate_hz:
             was_searching = link.state == "searching"
@@ -263,7 +265,7 @@ def main():
                 if was_searching:
                     gui.add_log(f"Serial connected: {link.port_name}")
                 if link.send(packet):
-                    print(f"[TX] {packet.hex()}  "
+                    print(f"[TX] {packet.strip().decode()}  "
                           f"motors=({motor_l},{motor_r}) weapon={weapon_byte} fs={failsafe_byte}")
                 else:
                     gui.add_log("Serial write failed")

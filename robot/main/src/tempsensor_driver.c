@@ -1,6 +1,7 @@
 #include "tempsensor_driver.h"
 #include "i2c_bus.h"
 
+#include <stdbool.h>
 #include <math.h>
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
@@ -32,6 +33,7 @@ typedef struct {
     i2c_port_t     bus;
     uint8_t        addr;
     bmp280_calib_t calib;
+    bool           ok;
 } sensor_cfg_t;
 
 static sensor_cfg_t s_sensors[TEMP_COUNT] = {
@@ -81,7 +83,7 @@ static void init_sensor(sensor_cfg_t *s)
 
     bmp280_write(s, BMP280_REG_CONFIG,    0x00);       // filter off, standby 0.5 ms
     bmp280_write(s, BMP280_REG_CTRL_MEAS, BMP280_CTRL_VAL);
-
+    s->ok = true;
 }
 
 void tempsensor_driver_init(void)
@@ -94,7 +96,7 @@ void tempsensor_driver_init(void)
     int ok = 0;
     for (int i = 0; i < TEMP_COUNT; i++) {
         init_sensor(&s_sensors[i]);
-        if (s_sensors[i].calib.dig_T1 != 0) ok++;
+        if (s_sensors[i].ok) ok++;
     }
     ESP_LOGI(TAG, "Temp sensors init: %d/%d OK", ok, TEMP_COUNT);
 }
@@ -104,8 +106,8 @@ float temp_get_temperature(temp_sensor_t sensor)
     if (sensor >= TEMP_COUNT) return NAN;
 
     sensor_cfg_t *s = &s_sensors[sensor];
-    if (s->calib.dig_T1 == 0) {
-        return NAN;  // sensor was not initialized successfully
+    if (!s->ok) {
+        return NAN;
     }
 
     uint8_t raw[3];

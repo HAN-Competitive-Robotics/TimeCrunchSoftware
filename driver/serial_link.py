@@ -33,6 +33,10 @@ class SerialLink:
         self.packet_count = 0
         self.last_ok = 0
         self.state = "searching"
+        self._last_reconnect_attempt = 0.0
+        self._hz_t0 = time.time()
+        self._hz_n = 0
+        self._hz_current = 0.0
 
     def _try_open(self):
         port = self.cfg["serial"]["port"]
@@ -53,6 +57,10 @@ class SerialLink:
 
     def ensure_connected(self):
         if self.ser is None:
+            now = time.time()
+            if now - self._last_reconnect_attempt < 0.5:
+                return False
+            self._last_reconnect_attempt = now
             if self._try_open():
                 return True
             self.state = "searching"
@@ -65,8 +73,15 @@ class SerialLink:
         try:
             self.ser.write(data)
             self.packet_count += 1
-            self.last_ok = time.time()
+            now = time.time()
+            self.last_ok = now
             self.state = "connected"
+            self._hz_n += 1
+            elapsed = now - self._hz_t0
+            if elapsed >= 1.0:
+                self._hz_current = self._hz_n / elapsed
+                self._hz_n = 0
+                self._hz_t0 = now
             return True
         except serial.SerialException:
             self.ser.close()
@@ -81,3 +96,7 @@ class SerialLink:
     @property
     def idle_ms(self):
         return int((time.time() - self.last_ok) * 1000) if self.last_ok else 9999
+
+    @property
+    def current_hz(self) -> float:
+        return self._hz_current

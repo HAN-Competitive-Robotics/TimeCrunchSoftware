@@ -251,7 +251,7 @@ class GUI:
 
         # ── Stats ─────────────────────────────────────────────────────────────
         stats_y = max(by + bh + gap2, iy3 + gap2)
-        hz = link.packet_count / (runtime_ms / 1000.0) if runtime_ms > 0 else 0
+        hz = link.current_hz
         self._txt(f"Pkts: {link.packet_count}  |  {hz:.1f} Hz  |  Idle: {link.idle_ms} ms",
                   "text", (lm, stats_y), small=True)
 

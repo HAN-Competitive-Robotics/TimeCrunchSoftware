@@ -16,6 +16,9 @@
 
 void weapon_controller_init(void);
 void weapon_controller_set_target_rpm(float rpm);
+// update() must be called at 100 Hz. Output = FF + KP*error + KI*integral, clamped to
+// [0, 100] to prevent the PI term going negative, then multiplied by reverse_flag (+1/-1)
+// to select spin direction. reverse_flag selects CW vs CCW; the PI magnitude is always ≥0.
 void weapon_controller_update(void);
 void weapon_controller_reset(void);
 void weapon_controller_set_reverse_flag(int8_t flag);

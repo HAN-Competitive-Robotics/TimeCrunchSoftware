@@ -87,23 +87,43 @@ static void usb_rx_thread_fn(void *a, void *b, void *c)
 	}
 }
 
+static int hex_nibble(uint8_t c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
 static void handle_message(const uint8_t *msg, size_t len)
 {
-	if (len == 4) {
-		if (!esb_radio_ready()) {
-			LOG_WRN("ESB not ready packet dropped");
+	if (len != 8) {
+		LOG_WRN("Unexpected message length: %u (expected 8 hex chars)", (unsigned)len);
+		return;
+	}
+
+	uint8_t decoded[4];
+	for (int i = 0; i < 4; i++) {
+		int hi = hex_nibble(msg[i * 2]);
+		int lo = hex_nibble(msg[i * 2 + 1]);
+		if (hi < 0 || lo < 0) {
+			LOG_WRN("Invalid hex in packet at byte %d", i);
 			return;
 		}
+		decoded[i] = (uint8_t)((hi << 4) | lo);
+	}
 
-		struct esb_payload pl = esb_set_battlebot_payload(msg[0], msg[1], msg[2], msg[3]);
-		int err = esb_radio_send(&pl);
-		led_debug_toggle();
+	if (!esb_radio_ready()) {
+		LOG_WRN("ESB not ready — packet dropped");
+		return;
+	}
 
-		if (err) {
-			LOG_ERR("ESB send failed: %d", err);
-		}
-	} else {
-		LOG_WRN("Unexpected message length: %u (expected 4)", (unsigned)len);
+	struct esb_payload pl = esb_set_battlebot_payload(decoded[0], decoded[1], decoded[2], decoded[3]);
+	int err = esb_radio_send(&pl);
+	led_debug_toggle();
+
+	if (err) {
+		LOG_ERR("ESB send failed: %d", err);
 	}
 }
 

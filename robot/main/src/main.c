@@ -24,9 +24,9 @@ typedef struct {
 } robot_state_t;
 
 static QueueHandle_t  state_queue;
-static TaskHandle_t   h_core0 = NULL;
-static TaskHandle_t   h_core1 = NULL;
-static TaskHandle_t   h_temp  = NULL;
+static TaskHandle_t   h_radio   = NULL;
+static TaskHandle_t   h_weapon  = NULL;
+static TaskHandle_t   h_thermal = NULL;
 
 /* Center of the 0–255 packet range, per the protocol spec. */
 #define PACKET_CENTER 127
@@ -41,9 +41,9 @@ static int map_byte_to_throttle(uint8_t b)
 }
 
 /* --------------------------------------------------------------------------
- * Core 0  Radio receive, drive motors, failsafe
+ * task_radio — Radio receive, drive motors, failsafe  (Core 0)
  * -------------------------------------------------------------------------- */
-void task_core0(void *pvParameters)
+void task_radio(void *pvParameters)
 {
     const uint8_t address[NRF24_ADDR_LEN] = {'1', 'N', 'O', 'D', 'E'};
     uint8_t       rx_buf[4] = {0};
@@ -140,9 +140,9 @@ void task_core0(void *pvParameters)
 }
 
 /* --------------------------------------------------------------------------
- * Core 1  Weapon PI controller (100 Hz)
+ * task_weapon — Weapon PI controller, 100 Hz  (Core 1)
  * -------------------------------------------------------------------------- */
-void task_core1(void *pvParameters)
+void task_weapon(void *pvParameters)
 {
     robot_state_t state = {0};
     TickType_t    wake_time = xTaskGetTickCount();
@@ -158,7 +158,7 @@ void task_core1(void *pvParameters)
             state = new_state;
         }
 
-        /* Weapon: 127=off, 0-62=attack reverse, 63-126=idle reverse, 128-191=idle, 192-255=attack */
+        /* Weapon: 127=off, 0-63=attack rev, 64-126=idle rev, 128-190=idle, 191-255=attack */
         if (state.hard_failsafe || state.failsafe_active || !state.packet_received || state.weapon_throttle == 127) {
             weapon_controller_reset();
             motor_set_throttle(MOTOR_WEAPON, 0);
@@ -175,9 +175,9 @@ void task_core1(void *pvParameters)
 }
 
 /* --------------------------------------------------------------------------
- * Core 1  Thermal safety (1 Hz)
+ * task_thermal — Thermal safety, 1 Hz  (Core 1)
  * -------------------------------------------------------------------------- */
-void task_temp(void *pvParameters)
+void task_thermal(void *pvParameters)
 {
     vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -204,7 +204,7 @@ void app_main(void)
         return;
     }
 
-    xTaskCreatePinnedToCore(task_core0, "task_core0", 6144, NULL, 3, &h_core0, 0);
-    xTaskCreatePinnedToCore(task_core1, "task_core1", 4096, NULL, 2, &h_core1, 1);
-    xTaskCreatePinnedToCore(task_temp,  "task_temp",  4096, NULL, 1, &h_temp,  1);
+    xTaskCreatePinnedToCore(task_radio,   "task_radio",   6144, NULL, 3, &h_radio,   0);
+    xTaskCreatePinnedToCore(task_weapon,  "task_weapon",  4096, NULL, 2, &h_weapon,  1);
+    xTaskCreatePinnedToCore(task_thermal, "task_thermal", 4096, NULL, 1, &h_thermal, 1);
 }

@@ -18,7 +18,8 @@ typedef enum {
 } power_channel_t;
 
 // Probe the INA3221, verify IDs and configure it for continuous sampling.
-// Must be called AFTER tempsensor_driver_init (which installs the I2C bus).
+// Shares I2C_NUM_0 with the wheel temperature sensors via i2c_bus_init, which
+// is idempotent — init order does not matter.
 // On failure the driver stays disabled and subsequent reads return NAN.
 void power_sensor_driver_init(void);
 

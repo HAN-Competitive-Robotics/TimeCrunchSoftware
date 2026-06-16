@@ -40,17 +40,16 @@ void weapon_controller_update(void)
 
     s_integral += error * dt;
 
-    // Anti-windup: clamp integral so WEAPON_KI * integral never exceeds throttle range
-    if (WEAPON_KI != 0.0f) {
-        float max_integral = (100.0f - WEAPON_FF) / WEAPON_KI;
-        if (s_integral >  max_integral) s_integral =  max_integral;
-        if (s_integral < -max_integral) s_integral = -max_integral;
-    }
+    // Anti-windup: clamp integral so WEAPON_KI * integral never exceeds throttle range.
+    // When KI=0 clamp to zero so no surprise spike when KI is first tuned to non-zero.
+    float max_integral = (WEAPON_KI != 0.0f) ? (100.0f - WEAPON_FF) / WEAPON_KI : 0.0f;
+    if (s_integral >  max_integral) s_integral =  max_integral;
+    if (s_integral < -max_integral) s_integral = -max_integral;
 
     float output = WEAPON_FF + WEAPON_KP * error + WEAPON_KI * s_integral;
 
-    // Weapon ESC must never receive a reverse/brake command.
-    // Clamp to [0, 100]  negative output would spin the disc backward or brake at speed.
+    // Clamp PI magnitude to [0, 100] before applying direction.
+    // reverse_flag (+1 or -1) selects spin direction; output magnitude is always non-negative.
     if (output > 100.0f) output = 100.0f;
     if (output <   0.0f) output =   0.0f;
 
