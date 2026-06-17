@@ -2,13 +2,12 @@
 """HCR Mission Control — Dear PyGui driver station."""
 from __future__ import annotations
 
-import os, sys, json, time, argparse
+import math, os, sys, json, time, argparse
 from collections import deque
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 
-# Prevent pygame from spawning its own window; joystick subsystem still works.
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
@@ -28,14 +27,29 @@ from serial_link import SerialLink
 from inputmapper import InputMapper
 from calibrate   import calibrate
 
-# ─── Layout ──────────────────────────────────────────────────────────────────
-BAR_W  = 50
-BAR_H  = 200
-BAR_CY = BAR_H // 2
-LOG_N  = 9      # max lines kept
-LOG_H  = 160    # pixel height of log child-window
+# ─── Layout constants ─────────────────────────────────────────────────────────
+LEFT_W  = 250
+BAR_W   = 62
+BAR_H   = 200
+BAR_CY  = BAR_H // 2
+BAR_PAD = (LEFT_W - BAR_W * 2 - 10) // 2   # ≈ 58 px each side
 
-# ─── Palette (RGBA lists for DPG) ────────────────────────────────────────────
+RPM_MAX = 6000
+GAUGE_H = 100   # arc gauge drawlist height
+EXPO_H  = 55
+
+# Arc gauge geometry (pre-calculated from LEFT_W / GAUGE_H)
+_GCX = LEFT_W // 2   # 125
+_GCY = 53
+_GR  = 44
+_GRT = 13
+_GRM = _GR - _GRT // 2   # midline radius ≈ 37
+
+HZ_LEN = 150   # ~5 s at 30 fps
+LOG_N  = 7
+LOG_H  = 70
+
+# ─── Palette ─────────────────────────────────────────────────────────────────
 C_BG     = [30,  30,  35,  255]
 C_PANEL  = [45,  45,  55,  255]
 C_BORDER = [65,  65,  78,  255]
@@ -53,19 +67,21 @@ _log: deque[str] = deque(maxlen=LOG_N)
 
 _gs: dict = {
     "drive_inverted": False,
-    "weapon_state":   "safe",   # "safe" | "idle" | "attack"
+    "weapon_state":   "safe",
     "armed":          False,
     "killswitch":     False,
+    "weapon_rpm":     0,
+    "pkt_drops":      0,
 }
 
-# Keybind capture state
-_cap: dict = {"active": False, "row": 0, "col": 0, "step": 0}
+_match: dict  = {"running": False, "start": 0.0, "elapsed": 0.0}
+_hz_buf: deque[float] = deque([0.0] * HZ_LEN, maxlen=HZ_LEN)
 
-# Indicator themes — populated in _build_ui
+_cap: dict = {"active": False, "row": 0, "col": 0, "step": 0}
 _IND: dict[str, int] = {}
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _log_add(msg: str) -> None:
     _log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
@@ -75,21 +91,52 @@ def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
     return f"{ml:02x}{mr:02x}{wb:02x}{fb:02x}\n".encode()
 
 
+def _arc_pts(cx: float, cy: float, r: float,
+             a_start: float, a_end: float, segs: int = 40) -> list[list[float]]:
+    """Screen-coord arc points; angles in degrees, 0°=right, CCW positive."""
+    pts = []
+    for i in range(segs + 1):
+        a = math.radians(a_start + (a_end - a_start) * i / segs)
+        pts.append([cx + r * math.cos(a), cy - r * math.sin(a)])
+    return pts
+
+
+# ─── Font loading ─────────────────────────────────────────────────────────────
+
+def _try_load_font() -> None:
+    candidates = [
+        Path.home() / "Library/Fonts/JetBrainsMono-Regular.ttf",
+        Path("/Library/Fonts/JetBrainsMono-Regular.ttf"),
+        Path.home() / "Library/Fonts/JetBrainsMonoNL-Regular.ttf",
+        Path("/Library/Fonts/Hack-Regular.ttf"),
+        Path("/Library/Fonts/FiraCode-Regular.ttf"),
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                with dpg.font_registry():
+                    with dpg.font(str(path), 14) as fnt:
+                        pass
+                dpg.bind_font(fnt)
+                return
+            except Exception:
+                pass
+
+
 # ─── Indicator buttons ────────────────────────────────────────────────────────
 
 def _make_ind_themes() -> None:
-    """Pre-bake colour themes for the four status-indicator buttons."""
     specs: dict[str, tuple] = {
-        "panel":  ((50, 50, 62),   (160, 160, 170)),
-        "good":   ((40, 160, 80),  (230, 255, 230)),
-        "warn":   ((180, 125, 0),  (255, 240, 160)),
-        "danger": ((175, 35,  35), (255, 200, 200)),
-        "attack": ((150, 20,  20), (255, 170, 170)),
+        "panel":  ((50,  50,  62),  (160, 160, 170)),
+        "good":   ((40,  160, 80),  (230, 255, 230)),
+        "warn":   ((180, 125, 0),   (255, 240, 160)),
+        "danger": ((175, 35,  35),  (255, 200, 200)),
+        "attack": ((150, 20,  20),  (255, 170, 170)),
     }
     for name, (bg, fg) in specs.items():
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Button,       bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Button,        bg)
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, bg)
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  bg)
                 dpg.add_theme_color(dpg.mvThemeCol_Text,          fg)
@@ -107,11 +154,24 @@ def _make_bar(side: str) -> None:
     dpg.add_text(side, color=C_DIM[:3], indent=BAR_W // 2 - 4)
     with dpg.drawlist(width=BAR_W, height=BAR_H, tag=f"dl_{side}"):
         dpg.draw_rectangle([0, 0], [BAR_W, BAR_H],
-                           fill=C_PANEL[:3], color=[0,0,0,0], tag=f"dr_bg_{side}")
-        dpg.draw_line([3, BAR_CY], [BAR_W-3, BAR_CY],
+                           fill=C_PANEL[:3], color=[0, 0, 0, 0], tag=f"dr_bg_{side}")
+        # Tick marks at ±25 / ±50 / ±75 %
+        for pct in [25, 50, 75]:
+            tw = 7 if pct == 50 else 4
+            for direction in (1, -1):
+                yt = int(BAR_CY - direction * pct / 100 * BAR_CY)
+                dpg.draw_line([2, yt], [tw + 1, yt], color=C_BORDER[:3], thickness=1)
+                dpg.draw_line([BAR_W - tw - 1, yt], [BAR_W - 2, yt],
+                              color=C_BORDER[:3], thickness=1)
+        dpg.draw_line([3, BAR_CY], [BAR_W - 3, BAR_CY],
                       color=C_BORDER[:3], thickness=1, tag=f"dr_ctr_{side}")
-        dpg.draw_rectangle([5, BAR_CY-1], [BAR_W-5, BAR_CY+1],
-                           fill=C_DIM[:3], color=[0,0,0,0], tag=f"dr_bar_{side}")
+        # Glow layer (semi-transparent, slightly oversized)
+        dpg.draw_rectangle([3, BAR_CY - 2], [BAR_W - 3, BAR_CY + 2],
+                           fill=[100, 100, 100, 35], color=[0, 0, 0, 0],
+                           tag=f"dr_glow_{side}")
+        # Main bar
+        dpg.draw_rectangle([5, BAR_CY - 1], [BAR_W - 5, BAR_CY + 1],
+                           fill=C_DIM[:3], color=[0, 0, 0, 0], tag=f"dr_bar_{side}")
     dpg.add_text("127", tag=f"txt_val_{side}", color=C_TEXT[:3],
                  indent=BAR_W // 2 - 8)
 
@@ -125,10 +185,81 @@ def _update_bar(side: str, value: int) -> None:
         y1, y2 = BAR_CY, min(BAR_H, int(BAR_CY + (-norm) * BAR_CY))
         fill = C_REV[:3]
     else:
-        y1, y2 = BAR_CY-1, BAR_CY+1
+        y1, y2 = BAR_CY - 1, BAR_CY + 1
         fill = C_DIM[:3]
-    dpg.configure_item(f"dr_bar_{side}", pmin=[5, y1], pmax=[BAR_W-5, max(y1+2, y2)], fill=fill)
+    dpg.configure_item(f"dr_bar_{side}",
+                       pmin=[5, y1], pmax=[BAR_W - 5, max(y1 + 2, y2)], fill=fill)
+    dpg.configure_item(f"dr_glow_{side}",
+                       pmin=[3, y1 - 1], pmax=[BAR_W - 3, max(y1 + 1, y2 + 1)],
+                       fill=[fill[0], fill[1], fill[2], 50])
     dpg.set_value(f"txt_val_{side}", str(value))
+
+
+# ─── Weapon RPM arc gauge ─────────────────────────────────────────────────────
+
+def _make_rpm_gauge() -> None:
+    with dpg.drawlist(width=LEFT_W, height=GAUGE_H, tag="dl_rpm"):
+        # Background track (full sweep 225° → -45°)
+        pts_bg = _arc_pts(_GCX, _GCY, _GRM, 225, -45, segs=60)
+        dpg.draw_polyline(pts_bg, color=[55, 55, 68], thickness=_GRT, tag="dr_rpm_bg")
+        # Value arc — starts degenerate, updated each frame
+        dpg.draw_polyline([[_GCX, _GCY], [_GCX + 0.01, _GCY]],
+                          color=[40, 210, 100], thickness=_GRT - 3, tag="dr_rpm_val")
+        # Scale labels at 0 / 3k / 6k
+        for pct, lbl in [(0, "0"), (50, "3k"), (100, "6k")]:
+            a = math.radians(225 - 270 * pct / 100)
+            x1 = _GCX + (_GR - _GRT - 1) * math.cos(a)
+            y1 = _GCY - (_GR - _GRT - 1) * math.sin(a)
+            x2 = _GCX + (_GR + 2) * math.cos(a)
+            y2 = _GCY - (_GR + 2) * math.sin(a)
+            dpg.draw_line([x1, y1], [x2, y2], color=[90, 90, 105], thickness=1)
+            lx = _GCX + (_GR + 12) * math.cos(a) - 6
+            ly = _GCY - (_GR + 12) * math.sin(a) - 6
+            dpg.draw_text([lx, ly], lbl, color=[80, 80, 95], size=10)
+        # Minor ticks at 25 / 75 %
+        for pct in [25, 75]:
+            a = math.radians(225 - 270 * pct / 100)
+            dpg.draw_line(
+                [_GCX + (_GR - _GRT) * math.cos(a), _GCY - (_GR - _GRT) * math.sin(a)],
+                [_GCX + _GR * math.cos(a),           _GCY - _GR * math.sin(a)],
+                color=[70, 70, 83], thickness=1)
+        # Centre readout
+        dpg.draw_text([_GCX - 28, _GCY - 18], "0 RPM",
+                      color=[200, 200, 200], size=14, tag="dr_rpm_num")
+        dpg.draw_text([_GCX - 27, _GCY - 1], "WEAPON", color=[70, 70, 85], size=11)
+
+
+def _update_rpm_gauge(rpm: int) -> None:
+    f = max(0.0, min(1.0, rpm / RPM_MAX))
+    end_deg = 225 - 270 * f
+    if f < 0.01:
+        pts: list = [[_GCX, _GCY], [_GCX + 0.01, _GCY]]
+    else:
+        pts = _arc_pts(_GCX, _GCY, _GRM, 225, end_deg, segs=max(2, int(60 * f)))
+    rc = int(min(210, 420 * f)) if f <= 0.5 else 210
+    gc = 210 if f <= 0.5 else int(max(0, 210 * (1 - (f - 0.5) * 2)))
+    dpg.configure_item("dr_rpm_val", points=pts, color=[rc, gc, 40], thickness=_GRT - 3)
+    dpg.configure_item("dr_rpm_num", text=f"{rpm} RPM")
+
+
+# ─── Expo curve ───────────────────────────────────────────────────────────────
+
+def _make_expo_curve() -> None:
+    dpg.add_simple_plot(
+        tag="plot_expo",
+        default_value=[0.0] * 41,
+        width=LEFT_W, height=EXPO_H,
+        min_scale=-1.05, max_scale=1.05,
+        overlay="expo=0.00",
+    )
+
+
+def _update_expo_curve(expo: float) -> None:
+    n = 41
+    vals = [(-1 + 2 * i / (n - 1)) * (1 - expo) + ((-1 + 2 * i / (n - 1)) ** 3) * expo
+            for i in range(n)]
+    dpg.set_value("plot_expo", vals)
+    dpg.configure_item("plot_expo", overlay=f"expo={expo:.2f}")
 
 
 # ─── Keybind table ────────────────────────────────────────────────────────────
@@ -137,20 +268,16 @@ def _refresh_kb_table(profiles: ProfileManager) -> None:
     kb = profiles.active.get("keybinds", {})
     gp = profiles.active.get("gamepad", {})
     for i, (_, _, is_axis, kb_pos, kb_neg, gp_key) in enumerate(BINDABLE_ACTIONS):
-        # Keyboard cell
         if _cap["active"] and _cap["row"] == i and _cap["col"] == 0:
             lbl = ("PRESS + KEY…" if _cap["step"] == 0 else "PRESS − KEY…") if is_axis else "PRESS KEY…"
             dpg.configure_item(f"kk_{i}", label=lbl)
             dpg.bind_item_theme(f"kk_{i}", _IND["warn"])
         else:
-            if is_axis:
-                lbl = f"{key_display(kb.get(kb_pos))} / {key_display(kb.get(kb_neg))}"
-            else:
-                lbl = key_display(kb.get(kb_pos, ""))
+            lbl = (f"{key_display(kb.get(kb_pos))} / {key_display(kb.get(kb_neg))}"
+                   if is_axis else key_display(kb.get(kb_pos, "")))
             dpg.configure_item(f"kk_{i}", label=lbl or "—")
             dpg.bind_item_theme(f"kk_{i}", 0)
 
-        # Gamepad cell
         if _cap["active"] and _cap["row"] == i and _cap["col"] == 1:
             dpg.configure_item(f"gp_{i}", label="MOVE / PRESS…")
             dpg.bind_item_theme(f"gp_{i}", _IND["warn"])
@@ -160,7 +287,6 @@ def _refresh_kb_table(profiles: ProfileManager) -> None:
 
 
 def _handle_joy_capture(event, profiles: ProfileManager, mapper: InputMapper) -> None:
-    """Route pygame joystick events into the gamepad-capture flow."""
     if not _cap["active"] or _cap["col"] != 1:
         return
     _, _, is_axis, _, _, gp_key = BINDABLE_ACTIONS[_cap["row"]]
@@ -183,10 +309,9 @@ def _handle_joy_capture(event, profiles: ProfileManager, mapper: InputMapper) ->
 
 def _on_key_press(sender, key_code, user_data) -> None:
     profiles: ProfileManager
-    mapper:   InputMapper
+    mapper: InputMapper
     profiles, mapper = user_data
 
-    # F2: toggle keybind window
     if key_code == dpg.mvKey_F2 and not _cap["active"]:
         if dpg.is_item_shown("kb_win"):
             _cap["active"] = False
@@ -196,7 +321,6 @@ def _on_key_press(sender, key_code, user_data) -> None:
             dpg.show_item("kb_win")
         return
 
-    # ESC: cancel capture or close keybind window
     if key_code == dpg.mvKey_Escape:
         if _cap["active"]:
             _cap["active"] = False
@@ -204,7 +328,6 @@ def _on_key_press(sender, key_code, user_data) -> None:
             dpg.hide_item("kb_win")
         return
 
-    # Only proceed if we're capturing a keyboard bind
     if not _cap["active"] or _cap["col"] != 0:
         return
 
@@ -230,10 +353,12 @@ def _on_key_press(sender, key_code, user_data) -> None:
         _log_add(f"Bound {kb_pos}: {key_display(name)}")
 
 
-# ─── UI construction (called once) ────────────────────────────────────────────
+# ─── UI construction ──────────────────────────────────────────────────────────
 
 def _build_ui(cfg: dict, profiles: ProfileManager,
               link: SerialLink, mapper: InputMapper) -> None:
+
+    _try_load_font()
 
     # ── Global theme ──────────────────────────────────────────────────────────
     with dpg.theme() as g_theme:
@@ -259,13 +384,15 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
             dpg.add_theme_color(dpg.mvThemeCol_TableRowBg,       (30, 30, 35))
             dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt,    (36, 36, 46))
             dpg.add_theme_color(dpg.mvThemeCol_TableBorderLight, (62, 62, 76))
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding,   0)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,    4)
-            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding,     4)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,      8, 5)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,     8, 5)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,    12, 10)
-            dpg.add_theme_style(dpg.mvStyleVar_CellPadding,      6, 4)
+            dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram,    (0, 200, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_PlotLines,        (0, 200, 255))
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding,  0)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,   4)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding,    4)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,     8, 5)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,    8, 5)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,   12, 10)
+            dpg.add_theme_style(dpg.mvStyleVar_CellPadding,     6, 4)
     dpg.bind_theme(g_theme)
     _make_ind_themes()
 
@@ -274,9 +401,8 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
         profiles.toggle_drive_mode()
         mapper.set_profile(profiles.active)
         _gs["drive_inverted"] = False
-        dm = profiles.active["drive_mode"].upper()
-        dpg.configure_item("btn_drive", label=f"T: {dm}")
-        _log_add(f"Drive mode: {dm}")
+        dpg.configure_item("btn_drive", label=f"T: {profiles.active['drive_mode'].upper()}")
+        _log_add(f"Drive mode: {profiles.active['drive_mode'].upper()}")
 
     def cb_profile(s, val, u):
         idx = next(i for i, p in enumerate(profiles.profiles) if p["name"] == val)
@@ -285,6 +411,10 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
         _gs["drive_inverted"] = False
         _gs["weapon_state"]   = "safe"
         dpg.configure_item("btn_drive", label=f"T: {profiles.active['drive_mode'].upper()}")
+        if dpg.does_item_exist("inp_profile_name"):
+            dpg.set_value("inp_profile_name", profiles.active["name"])
+        if dpg.does_item_exist("sl_expo"):
+            dpg.set_value("sl_expo", profiles.active.get("expo", 0.0))
         _log_add(f"Profile: {profiles.active['name']}")
 
     def cb_new(s, a, u):
@@ -300,6 +430,8 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
 
     def cb_keybinds(s, a, u):
         _refresh_kb_table(profiles)
+        dpg.set_value("inp_profile_name", profiles.active["name"])
+        dpg.set_value("sl_expo", profiles.active.get("expo", 0.0))
         dpg.show_item("kb_win")
 
     def cb_del_profile(s, a, u):
@@ -326,6 +458,43 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
         row, col = u
         _cap.update(active=True, row=row, col=col, step=0)
 
+    def cb_arm_click(s, a, u):
+        _gs["armed"] = not _gs["armed"]
+        _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
+
+    def cb_timer_toggle(s, a, u):
+        if _match["running"]:
+            _match["elapsed"] += time.time() - _match["start"]
+            _match["running"] = False
+            dpg.configure_item("btn_timer_toggle", label="START")
+        else:
+            _match["start"] = time.time()
+            _match["running"] = True
+            dpg.configure_item("btn_timer_toggle", label="PAUSE")
+
+    def cb_timer_reset(s, a, u):
+        _match["running"] = False
+        _match["elapsed"] = 0.0
+        dpg.configure_item("btn_timer_toggle", label="START")
+        dpg.set_value("txt_timer", "0:00.0")
+
+    def cb_rename_profile(s, a, u):
+        new_name = dpg.get_value("inp_profile_name").strip()
+        if not new_name:
+            return
+        profiles.active["name"] = new_name
+        profiles.save()
+        dpg.configure_item("cmb_profile",
+                           items=[p["name"] for p in profiles.profiles],
+                           default_value=new_name)
+        dpg.configure_item("kb_win", label="Keybinds — " + new_name)
+        _log_add(f"Profile renamed: '{new_name}'")
+
+    def cb_expo(s, val, u):
+        profiles.active["expo"] = val
+        profiles.save()
+        mapper.set_profile(profiles.active)
+
     # ── Global key handler ────────────────────────────────────────────────────
     with dpg.handler_registry():
         dpg.add_key_press_handler(callback=_on_key_press,
@@ -336,11 +505,11 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                     no_resize=True, no_close=True, no_collapse=True,
                     no_scrollbar=True):
 
-        # Header
+        # Header row
         with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit,
                        pad_outerX=False):
             dpg.add_table_column(width_stretch=True)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=410)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=420)
             with dpg.table_row():
                 with dpg.table_cell():
                     dpg.add_text("HCR MISSION CONTROL", color=C_ACCENT[:3])
@@ -361,42 +530,62 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
 
         # Status bar
         with dpg.group(horizontal=True):
-            dpg.add_text("○ SEARCHING…", tag="txt_serial", color=C_WARN[:3])
-            dpg.add_text("  │  ", color=C_DIM[:3])
-            dpg.add_text("○ NO GAMEPAD", tag="txt_gamepad", color=C_WARN[:3])
-            dpg.add_text("  │  ", color=C_DIM[:3])
-            dpg.add_text("0.0 Hz  │  — ms", tag="txt_stats", color=C_DIM[:3])
+            dpg.add_text("○ SEARCHING…",   tag="txt_serial",  color=C_WARN[:3])
+            dpg.add_text("  │  ",           color=C_DIM[:3])
+            dpg.add_text("○ NO GAMEPAD",   tag="txt_gamepad", color=C_WARN[:3])
+            dpg.add_text("  │  ",           color=C_DIM[:3])
+            dpg.add_text("0.0 Hz  │  — ms", tag="txt_stats",   color=C_DIM[:3])
 
         dpg.add_separator()
 
-        # Main split
+        # Main split: left (motors + gauges) | right (status + telemetry + log)
         with dpg.group(horizontal=True):
 
-            # Left: motor bars
-            with dpg.child_window(width=BAR_W*2 + 28, border=False,
+            # ── Left panel ────────────────────────────────────────────────────
+            with dpg.child_window(width=LEFT_W, border=False,
                                   no_scrollbar=True, tag="w_left"):
+                # Motor bars — centred in LEFT_W
                 with dpg.group(horizontal=True):
+                    dpg.add_spacer(width=BAR_PAD)
                     with dpg.group():
                         _make_bar("L")
                     dpg.add_spacer(width=10)
                     with dpg.group():
                         _make_bar("R")
-                dpg.add_spacer(height=6)
+
+                dpg.add_spacer(height=4)
                 dpg.add_text("", tag="txt_stats2", color=C_DIM[:3], wrap=0)
+
+                dpg.add_separator()
+                dpg.add_text("WEAPON RPM", color=C_ACCENT[:3])
+                _make_rpm_gauge()
+
+                dpg.add_separator()
+                dpg.add_text("DRIVE EXPO", color=C_ACCENT[:3])
+                _make_expo_curve()
 
             dpg.add_spacer(width=8)
 
-            # Right: indicators + log + controls
+            # ── Right panel ───────────────────────────────────────────────────
             with dpg.child_window(border=False, no_scrollbar=True, tag="w_right"):
-                # Indicator row 1
+
+                # Indicator row 1 — ARMED is clickable
                 with dpg.group(horizontal=True):
-                    dpg.add_button(label="DISARMED",    tag="ind_armed",
-                                   height=34, width=-2)
+                    dpg.add_button(label="DISARMED", tag="ind_armed",
+                                   height=34, width=-2, callback=cb_arm_click)
                     dpg.add_spacer(width=4)
                     dpg.add_button(label="WEAPON SAFE", tag="ind_weapon",
                                    height=34, width=-1)
                 _set_ind("ind_armed",  "DISARMED",    "danger")
                 _set_ind("ind_weapon", "WEAPON SAFE", "panel")
+
+                with dpg.tooltip("ind_armed"):
+                    dpg.add_text("Click (or press arm key) to toggle arm state.")
+                    dpg.add_text("Robot ignores drive while DISARMED.")
+                with dpg.tooltip("ind_weapon"):
+                    dpg.add_text("SAFE = weapon off")
+                    dpg.add_text("IDLE = spinning at low speed")
+                    dpg.add_text("ATTACK = full speed (hold weapon-rev)")
 
                 dpg.add_spacer(height=4)
 
@@ -410,8 +599,39 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                 _set_ind("ind_drive", "DRIVE NORMAL",   "panel")
                 _set_ind("ind_kill",  "KILLSWITCH OFF", "panel")
 
+                with dpg.tooltip("ind_drive"):
+                    dpg.add_text("Press drive-invert key to flip L/R.")
+                with dpg.tooltip("ind_kill"):
+                    dpg.add_text("Killswitch latches until power cycle.")
+                    dpg.add_text("Immediately sends max failsafe byte.")
+
                 dpg.add_separator()
 
+                # Telemetry strip
+                dpg.add_text("TELEMETRY", color=C_ACCENT[:3])
+                dpg.add_simple_plot(
+                    tag="plot_hz",
+                    default_value=[0.0] * HZ_LEN,
+                    width=-1, height=50,
+                    min_scale=0.0, max_scale=60.0,
+                    overlay="Hz",
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("TX:", color=C_DIM[:3])
+                    dpg.add_text("0",       tag="txt_pkt",   color=C_TEXT[:3])
+                    dpg.add_text("  Drop:", color=C_DIM[:3])
+                    dpg.add_text("0",       tag="txt_drop",  color=C_GOOD[:3])
+                    dpg.add_text("  Match:", color=C_DIM[:3])
+                    dpg.add_text("0:00.0",  tag="txt_timer", color=C_WARN[:3])
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="START", tag="btn_timer_toggle",
+                                   callback=cb_timer_toggle, width=70, height=24)
+                    dpg.add_button(label="RESET", callback=cb_timer_reset,
+                                   width=70, height=24)
+
+                dpg.add_separator()
+
+                # Event log
                 dpg.add_text("EVENT LOG", color=C_ACCENT[:3])
                 with dpg.child_window(tag="w_log", height=LOG_H,
                                       border=False, horizontal_scrollbar=False):
@@ -420,23 +640,37 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
 
                 dpg.add_separator()
 
+                # Controls reference
                 dpg.add_text("CONTROLS", color=C_ACCENT[:3])
                 dpg.add_text("", tag="txt_controls", color=C_TEXT[:3], wrap=0)
 
-    # ── Keybind editor (modal window) ─────────────────────────────────────────
+    # ── Keybind editor (modal) ────────────────────────────────────────────────
     with dpg.window(tag="kb_win", label="Keybinds — " + profiles.active["name"],
                     show=False, modal=True,
-                    width=680, height=540, no_collapse=True, pos=[50, 30]):
+                    width=680, height=580, no_collapse=True, pos=[50, 20]):
 
-        dpg.add_text(
-            "Click a cell to start capture.  ESC cancels.  F2 / close button to exit.",
-            color=C_DIM[:3])
+        # Rename + expo row
+        with dpg.group(horizontal=True):
+            dpg.add_text("Name:", color=C_DIM[:3])
+            dpg.add_input_text(tag="inp_profile_name",
+                               default_value=profiles.active["name"],
+                               width=180)
+            dpg.add_button(label="Rename", callback=cb_rename_profile, width=72)
+            dpg.add_spacer(width=12)
+            dpg.add_text("Expo:", color=C_DIM[:3])
+            dpg.add_slider_float(tag="sl_expo",
+                                 min_value=0.0, max_value=1.0,
+                                 default_value=profiles.active.get("expo", 0.0),
+                                 width=120, callback=cb_expo)
+
+        dpg.add_text("Click a cell to capture.  ESC cancels.  F2 / close to exit.",
+                     color=C_DIM[:3])
         dpg.add_separator()
 
         with dpg.table(header_row=True, tag="kb_tbl",
                        borders_innerH=True, borders_innerV=True,
                        borders_outerH=True, borders_outerV=True,
-                       row_background=True, scrollY=True, height=-50):
+                       row_background=True, scrollY=True, height=-60):
             dpg.add_table_column(label="Action",   width_fixed=True, init_width_or_weight=185)
             dpg.add_table_column(label="Keyboard", width_fixed=True, init_width_or_weight=230)
             dpg.add_table_column(label="Gamepad",  width_stretch=True)
@@ -458,6 +692,7 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
             dpg.add_button(label="Close", callback=cb_close_kb, width=80)
 
     dpg.set_primary_window("primary", True)
+    _update_expo_curve(profiles.active.get("expo", 0.0))
 
 
 # ─── Per-frame UI update ──────────────────────────────────────────────────────
@@ -465,7 +700,7 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
 def _update_ui(link: SerialLink, mapper: InputMapper,
                profiles: ProfileManager, ml: int, mr: int) -> None:
 
-    # Serial
+    # Serial status
     if link.state == "connected":
         dpg.set_value("txt_serial", f"● SERIAL OK  ({link.port_name})")
         dpg.configure_item("txt_serial", color=C_GOOD[:3])
@@ -476,7 +711,7 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
         dpg.set_value("txt_serial", "✕ SERIAL LOST")
         dpg.configure_item("txt_serial", color=C_DANGER[:3])
 
-    # Gamepad
+    # Gamepad status
     if mapper.joystick_name:
         dpg.set_value("txt_gamepad", f"● {mapper.joystick_name}")
         dpg.configure_item("txt_gamepad", color=C_GOOD[:3])
@@ -485,9 +720,9 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
         dpg.configure_item("txt_gamepad", color=C_WARN[:3])
 
     dpg.set_value("txt_stats",  f"{link.current_hz:.1f} Hz  │  {link.idle_ms} ms")
-    dpg.set_value("txt_stats2", f"L={ml}  R={mr}\nPkts: {link.packet_count}")
+    dpg.set_value("txt_stats2", f"L={ml}  R={mr}")
 
-    # Motor bars
+    # Motor bars + glow
     _update_bar("L", ml)
     _update_bar("R", mr)
 
@@ -497,17 +732,38 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     inv   = _gs["drive_inverted"]
     kill  = _gs["killswitch"]
 
-    _set_ind("ind_armed",  "ARMED"    if armed else "DISARMED",
-                           "good"     if armed else "danger")
+    _set_ind("ind_armed",
+             "ARMED"    if armed else "DISARMED",
+             "good"     if armed else "danger")
     _set_ind("ind_weapon",
              {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK"}[ws],
-             {"safe": "panel",       "idle": "warn",         "attack": "attack"}[ws])
+             {"safe": "panel",       "idle": "warn",        "attack": "attack"}[ws])
     _set_ind("ind_drive",
              "DRIVE INVERTED" if inv  else "DRIVE NORMAL",
              "warn"           if inv  else "panel")
     _set_ind("ind_kill",
              "KILLSWITCH!"    if kill else "KILLSWITCH OFF",
              "danger"         if kill else "panel")
+
+    # RPM gauge (0 until firmware sends telemetry)
+    _update_rpm_gauge(_gs["weapon_rpm"])
+
+    # Expo curve (updates whenever profile expo changes)
+    _update_expo_curve(profiles.active.get("expo", 0.0))
+
+    # Telemetry
+    _hz_buf.append(link.current_hz)
+    dpg.set_value("plot_hz", list(_hz_buf))
+    dpg.set_value("txt_pkt", str(link.packet_count))
+    drops = _gs["pkt_drops"]
+    dpg.set_value("txt_drop", str(drops))
+    dpg.configure_item("txt_drop", color=(C_GOOD[:3] if drops == 0 else C_WARN[:3]))
+
+    # Match timer
+    elapsed = (_match["elapsed"] + (time.time() - _match["start"])
+               if _match["running"] else _match["elapsed"])
+    m = int(elapsed) // 60
+    dpg.set_value("txt_timer", f"{m}:{elapsed - m * 60:04.1f}")
 
     # Event log
     lines = list(_log)
@@ -533,12 +789,12 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     ]
     dpg.set_value("txt_controls", "\n".join(ctrl))
 
-    # Keybind table (kept live while open)
+    # Keybind table stays live while open
     if dpg.is_item_shown("kb_win"):
         _refresh_kb_table(profiles)
         dpg.configure_item("kb_win", label="Keybinds — " + profiles.active["name"])
 
-    # Stretch primary window to viewport
+    # Stretch primary to viewport
     vw = dpg.get_viewport_width()
     vh = dpg.get_viewport_height()
     dpg.set_item_width("primary", vw)
@@ -561,14 +817,14 @@ def main() -> None:
     profiles = ProfileManager()
     link     = SerialLink(cfg)
 
-    pygame.init()     # with SDL_VIDEODRIVER=dummy, no window is created
+    pygame.init()
 
     dpg.create_context()
     init_keymap()
     dpg.create_viewport(
         title="HCR Mission Control",
         width=cfg["ui"]["width"], height=cfg["ui"]["height"],
-        resizable=True, min_width=640, min_height=400,
+        resizable=True, min_width=700, min_height=480,
     )
     dpg.setup_dearpygui()
     dpg.show_viewport()
@@ -576,7 +832,6 @@ def main() -> None:
     mapper = InputMapper(profiles.active)
     _build_ui(cfg, profiles, link, mapper)
 
-    # Initial log
     if link.ensure_connected():
         _log_add(f"Serial connected: {link.port_name}")
     else:
@@ -587,14 +842,11 @@ def main() -> None:
 
     rate_hz   = cfg["serial"]["rate_hz"]
     last_send = 0.0
-
-    # Edge-detection previous states
     prev_inv = prev_arm = prev_wpn = False
 
     while dpg.is_dearpygui_running():
         now = time.time()
 
-        # Joystick events (pygame)
         for event in pygame.event.get():
             msg = mapper.handle_event(event)
             if msg:
@@ -603,7 +855,6 @@ def main() -> None:
 
         overlay = dpg.is_item_shown("kb_win")
 
-        # Always sample buttons for correct edge tracking
         inv_raw  = mapper.read_button("drive_invert")
         kill_raw = mapper.read_button("killswitch")
         arm_raw  = mapper.read_button("arm")
@@ -612,7 +863,6 @@ def main() -> None:
         fwd, right = mapper.read_drive()
 
         if not overlay:
-            # Compute motor values
             dm = profiles.active.get("drive_mode")
             if dm == "arcade":
                 motor_l = int(max(0, min(255, 127 + (fwd + right) * 128)))
@@ -621,14 +871,12 @@ def main() -> None:
                 motor_l = int(max(0, min(255, 127 + fwd   * 128)))
                 motor_r = int(max(0, min(255, 127 + right * 128)))
 
-            # Drive invert (rising edge)
             if inv_raw and not prev_inv:
                 _gs["drive_inverted"] = not _gs["drive_inverted"]
                 _log_add(f"Drive invert {'ON' if _gs['drive_inverted'] else 'OFF'}")
             if _gs["drive_inverted"]:
                 motor_l, motor_r = motor_r, motor_l
 
-            # Killswitch (rising edge, latches)
             if kill_raw and not _gs["killswitch"]:
                 _gs["killswitch"] = True
                 _log_add("KILLSWITCH — robot latched until power cycle")
@@ -639,7 +887,6 @@ def main() -> None:
                 else:
                     _log_add("WARNING: killswitch sent but serial not connected")
 
-            # Arm (rising edge)
             if arm_raw and not prev_arm:
                 _gs["armed"] = not _gs["armed"]
                 _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
@@ -648,7 +895,6 @@ def main() -> None:
                 motor_l = motor_r = 127
                 _gs["weapon_state"] = "safe"
 
-            # Weapon state machine
             if _gs["armed"]:
                 if wpn_btn and not prev_wpn:
                     _gs["weapon_state"] = "safe" if _gs["weapon_state"] != "safe" else "idle"
@@ -659,17 +905,14 @@ def main() -> None:
 
             weapon_byte = {"safe": 127, "idle": 160, "attack": 255}[_gs["weapon_state"]]
         else:
-            # Neutral while keybind editor is open
             motor_l = motor_r = weapon_byte = 127
 
         failsafe_byte = 255 if (kill_raw or _gs["killswitch"]) else 0
 
-        # Update edge-detection state
         prev_inv = inv_raw
         prev_arm = arm_raw
         prev_wpn = wpn_btn
 
-        # Send packet at target rate
         if now - last_send >= 1.0 / rate_hz:
             pkt = _hex_packet(motor_l, motor_r, weapon_byte, failsafe_byte)
             was_searching = link.state == "searching"
@@ -681,6 +924,7 @@ def main() -> None:
                           f"motors=({motor_l},{motor_r}) "
                           f"weapon={weapon_byte} fs={failsafe_byte}")
                 else:
+                    _gs["pkt_drops"] += 1
                     _log_add("Serial write failed")
             last_send = now
 

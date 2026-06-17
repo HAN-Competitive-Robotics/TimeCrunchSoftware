@@ -11,8 +11,8 @@
     "center": 127
   },
   "ui": {
-    "width": 800,
-    "height": 480,
+    "width": 900,
+    "height": 600,
     "theme": {
       "bg": [30, 30, 35],
       "panel": [45, 45, 55],
