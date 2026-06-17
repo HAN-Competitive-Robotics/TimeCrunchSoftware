@@ -38,7 +38,7 @@ def init_keymap() -> None:
             pairs.append((d, getattr(dpg, attr)))
 
     specials = [
-        ("space",     "mvKey_Space"),
+        ("space",     "mvKey_Spacebar"),
         ("return",    "mvKey_Return"),
         ("escape",    "mvKey_Escape"),
         ("tab",       "mvKey_Tab"),

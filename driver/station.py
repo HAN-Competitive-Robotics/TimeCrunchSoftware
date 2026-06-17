@@ -338,9 +338,9 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
 
         # Header
         with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit,
-                       pad_outerX=False, no_clip=True):
+                       pad_outerX=False):
             dpg.add_table_column(width_stretch=True)
-            dpg.add_table_column(width_fixed=True, init_width=410)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=410)
             with dpg.table_row():
                 with dpg.table_cell():
                     dpg.add_text("HCR MISSION CONTROL", color=C_ACCENT[:3])
@@ -437,8 +437,8 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                        borders_innerH=True, borders_innerV=True,
                        borders_outerH=True, borders_outerV=True,
                        row_background=True, scrollY=True, height=-50):
-            dpg.add_table_column(label="Action",   width_fixed=True, init_width=185)
-            dpg.add_table_column(label="Keyboard", width_fixed=True, init_width=230)
+            dpg.add_table_column(label="Action",   width_fixed=True, init_width_or_weight=185)
+            dpg.add_table_column(label="Keyboard", width_fixed=True, init_width_or_weight=230)
             dpg.add_table_column(label="Gamepad",  width_stretch=True)
             for i, (_, label, _, _, _, _) in enumerate(BINDABLE_ACTIONS):
                 with dpg.table_row():
