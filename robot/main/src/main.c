@@ -54,8 +54,8 @@ void task_radio(void *pvParameters)
     ESP_LOGI(TAG, "Initializing motor driver...");
     motor_driver_init();
 
-    ESP_LOGI(TAG, "Initializing temperature sensors...");
-    tempsensor_driver_init();
+    // ESP_LOGI(TAG, "Initializing temperature sensors...");
+    // tempsensor_driver_init();
 
     ESP_LOGI(TAG, "Initializing power sensors...");
     power_sensor_driver_init();
@@ -88,24 +88,21 @@ void task_radio(void *pvParameters)
                     uint8_t weapon_raw   = rx_buf[2];
                     uint8_t failsafe_raw = rx_buf[3];
 
-                    ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d",
-                             left_raw, right_raw, weapon_raw, failsafe_raw);
+                    ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d  RPM: %.1f",
+                             left_raw, right_raw, weapon_raw, failsafe_raw, encoder_get_rpm());
 
-                    bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
-                                        temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
-                                        temp_get_temperature(TEMP_WEAPON)      >= KILLSWITCH_TEMP_C;
+                    // bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
+                    //                     temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
+                    //                     temp_get_temperature(TEMP_WEAPON)      >= KILLSWITCH_TEMP_C;
 
-                    if ((failsafe_raw > 127 || temp_critical) && !state.hard_failsafe) {
+                    if ((failsafe_raw > 127) && !state.hard_failsafe) {
                         state.hard_failsafe   = true;
                         state.weapon_throttle = 0;
                         state.failsafe_active = true;
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
                         xQueueOverwrite(state_queue, &state);
-                        if (temp_critical)
-                            ESP_LOGW(TAG, "THERMAL CUTOFF  entering deep sleep, power cycle to recover");
-                        else
-                            ESP_LOGW(TAG, "KILLSWITCH  entering deep sleep, power cycle to recover");
+                        ESP_LOGW(TAG, "KILLSWITCH  entering deep sleep, power cycle to recover");
                         vTaskDelay(pdMS_TO_TICKS(200));
                         esp_deep_sleep_start();
                     } else if (!state.hard_failsafe) {
@@ -114,7 +111,7 @@ void task_radio(void *pvParameters)
 
                         state.weapon_throttle = weapon_raw;
                         state.failsafe_active = false;
-                        motor_set_throttle(MOTOR_LEFT_WHEEL, left);
+                        motor_set_throttle(MOTOR_LEFT_WHEEL, -left);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, right);
                     }
 
@@ -150,7 +147,6 @@ void task_weapon(void *pvParameters)
     while (1) {
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(10));
 
-        ESP_LOGD(TAG, "RPM: %f", encoder_get_rpm());
     
 
         robot_state_t new_state;
@@ -182,13 +178,12 @@ void task_thermal(void *pvParameters)
     vTaskDelay(pdMS_TO_TICKS(500));
 
     while (1) {
-        motor_safety_check();
-        ESP_LOGD(TAG, "TEMP: L=%.1f°C R=%.1f°C W=%.1f°C  RPM=%.0f",
-                 temp_get_temperature(TEMP_LEFT_WHEEL),
-                 temp_get_temperature(TEMP_RIGHT_WHEEL),
-                 temp_get_temperature(TEMP_WEAPON),
-                 encoder_get_rpm());
-        // ESP_LOGD(TAG, "CURR: 1=%.1f 2=%.1f 3=%.1f VOLT=%.1f", power_sensor_get_current(POWER_LEFT_WHEEL), power_sensor_get_current(POWER_RIGHT_WHEEL), power_sensor_get_current(POWER_WEAPON), power_sensor_get_voltage());
+        // motor_safety_check();
+        // ESP_LOGD(TAG, "TEMP: L=%.1f°C R=%.1f°C W=%.1f°C  RPM=%.0f",
+        //          temp_get_temperature(TEMP_LEFT_WHEEL),
+        //          temp_get_temperature(TEMP_RIGHT_WHEEL),
+        //          temp_get_temperature(TEMP_WEAPON),
+        //          encoder_get_rpm());
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
