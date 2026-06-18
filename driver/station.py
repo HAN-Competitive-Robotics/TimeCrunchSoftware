@@ -34,7 +34,6 @@ BAR_H   = 200
 BAR_CY  = BAR_H // 2
 BAR_PAD = (LEFT_W - BAR_W * 2 - 10) // 2
 
-EXPO_H = 55
 LOG_N  = 8
 LOG_H  = 120
 
@@ -63,6 +62,8 @@ _gs: dict = {
 
 _cap: dict = {"active": False, "row": 0, "col": 0, "step": 0}
 _IND: dict[str, int] = {}
+_trim: dict = {"L": 0, "R": 0}    # raw offset −127…+127
+_mult: dict = {"L": 1.0, "R": 1.0}  # output multiplier 0.0…5.0
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -164,26 +165,6 @@ def _update_bar(side: str, value: int) -> None:
                        pmin=[3, y1 - 1], pmax=[BAR_W - 3, max(y1 + 1, y2 + 1)],
                        fill=[fill[0], fill[1], fill[2], 50])
     dpg.set_value(f"txt_val_{side}", str(value))
-
-
-# ─── Expo curve ───────────────────────────────────────────────────────────────
-
-def _make_expo_curve() -> None:
-    dpg.add_simple_plot(
-        tag="plot_expo",
-        default_value=[0.0] * 41,
-        width=LEFT_W, height=EXPO_H,
-        min_scale=-1.05, max_scale=1.05,
-        overlay="expo=0.00",
-    )
-
-
-def _update_expo_curve(expo: float) -> None:
-    n = 41
-    vals = [(-1 + 2 * i / (n - 1)) * (1 - expo) + ((-1 + 2 * i / (n - 1)) ** 3) * expo
-            for i in range(n)]
-    dpg.set_value("plot_expo", vals)
-    dpg.configure_item("plot_expo", overlay=f"expo={expo:.2f}")
 
 
 # ─── Keybind table ────────────────────────────────────────────────────────────
@@ -401,6 +382,36 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
         profiles.save()
         mapper.set_profile(profiles.active)
 
+    def _sync_trim(side, val):
+        val = max(-127, min(127, val))
+        _trim[side] = val
+        dpg.set_value(f"sl_trim_{side}", val)
+        dpg.set_value(f"inp_trim_{side}", val)
+
+    def cb_trim_L(s, val, u):     _sync_trim("L", val)
+    def cb_trim_R(s, val, u):     _sync_trim("R", val)
+    def cb_trim_L_inp(s, val, u): _sync_trim("L", val)
+    def cb_trim_R_inp(s, val, u): _sync_trim("R", val)
+    def cb_trim_L_inc(s, a, u):   _sync_trim("L", _trim["L"] + 1)
+    def cb_trim_L_dec(s, a, u):   _sync_trim("L", _trim["L"] - 1)
+    def cb_trim_R_inc(s, a, u):   _sync_trim("R", _trim["R"] + 1)
+    def cb_trim_R_dec(s, a, u):   _sync_trim("R", _trim["R"] - 1)
+
+    def _sync_mult(side, val):
+        val = max(0.0, min(5.0, round(val, 2)))
+        _mult[side] = val
+        dpg.set_value(f"sl_mult_{side}", val)
+        dpg.set_value(f"inp_mult_{side}", val)
+
+    def cb_mult_L(s, val, u):     _sync_mult("L", val)
+    def cb_mult_R(s, val, u):     _sync_mult("R", val)
+    def cb_mult_L_inp(s, val, u): _sync_mult("L", val)
+    def cb_mult_R_inp(s, val, u): _sync_mult("R", val)
+    def cb_mult_L_inc(s, a, u):   _sync_mult("L", _mult["L"] + 0.1)
+    def cb_mult_L_dec(s, a, u):   _sync_mult("L", _mult["L"] - 0.1)
+    def cb_mult_R_inc(s, a, u):   _sync_mult("R", _mult["R"] + 0.1)
+    def cb_mult_R_dec(s, a, u):   _sync_mult("R", _mult["R"] - 0.1)
+
     with dpg.handler_registry():
         dpg.add_key_press_handler(callback=_on_key_press,
                                   user_data=(profiles, mapper))
@@ -457,23 +468,95 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                 dpg.add_spacer(height=4)
                 dpg.add_text("", tag="txt_stats2", color=C_DIM[:3], wrap=0)
 
-                dpg.add_separator()
-                dpg.add_text("DRIVE EXPO", color=C_ACCENT[:3])
-                _make_expo_curve()
+                dpg.add_spacer(height=6)
+                dpg.add_text("TRIM", color=C_DIM[:3])
+                with dpg.group(horizontal=True):
+                    dpg.add_text("L", color=C_DIM[:3])
+                    dpg.add_button(label="-", width=22, callback=cb_trim_L_dec)
+                    dpg.add_slider_int(tag="sl_trim_L", min_value=-127, max_value=127,
+                                       default_value=0, width=90, format="%d",
+                                       callback=cb_trim_L)
+                    dpg.add_button(label="+", width=22, callback=cb_trim_L_inc)
+                    dpg.add_input_int(tag="inp_trim_L", default_value=0,
+                                      min_value=-127, max_value=127,
+                                      min_clamped=True, max_clamped=True,
+                                      width=55, step=0, on_enter=True,
+                                      callback=cb_trim_L_inp)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("R", color=C_DIM[:3])
+                    dpg.add_button(label="-", width=22, callback=cb_trim_R_dec)
+                    dpg.add_slider_int(tag="sl_trim_R", min_value=-127, max_value=127,
+                                       default_value=0, width=90, format="%d",
+                                       callback=cb_trim_R)
+                    dpg.add_button(label="+", width=22, callback=cb_trim_R_inc)
+                    dpg.add_input_int(tag="inp_trim_R", default_value=0,
+                                      min_value=-127, max_value=127,
+                                      min_clamped=True, max_clamped=True,
+                                      width=55, step=0, on_enter=True,
+                                      callback=cb_trim_R_inp)
+
+                dpg.add_spacer(height=6)
+                dpg.add_text("MULT", color=C_DIM[:3])
+                with dpg.group(horizontal=True):
+                    dpg.add_text("L", color=C_DIM[:3])
+                    dpg.add_button(label="-", width=22, callback=cb_mult_L_dec)
+                    dpg.add_slider_float(tag="sl_mult_L", min_value=0.0, max_value=5.0,
+                                         default_value=1.0, width=90, format="%.2f",
+                                         callback=cb_mult_L)
+                    dpg.add_button(label="+", width=22, callback=cb_mult_L_inc)
+                    dpg.add_input_float(tag="inp_mult_L", default_value=1.0,
+                                        min_value=0.0, max_value=5.0,
+                                        min_clamped=True, max_clamped=True,
+                                        width=55, step=0, on_enter=True,
+                                        format="%.2f", callback=cb_mult_L_inp)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("R", color=C_DIM[:3])
+                    dpg.add_button(label="-", width=22, callback=cb_mult_R_dec)
+                    dpg.add_slider_float(tag="sl_mult_R", min_value=0.0, max_value=5.0,
+                                         default_value=1.0, width=90, format="%.2f",
+                                         callback=cb_mult_R)
+                    dpg.add_button(label="+", width=22, callback=cb_mult_R_inc)
+                    dpg.add_input_float(tag="inp_mult_R", default_value=1.0,
+                                        min_value=0.0, max_value=5.0,
+                                        min_clamped=True, max_clamped=True,
+                                        width=55, step=0, on_enter=True,
+                                        format="%.2f", callback=cb_mult_R_inp)
+
 
             dpg.add_spacer(width=8)
 
-            # ── Right: indicators + log + controls ────────────────────────────
+            # ── Right: controls + indicators + log ────────────────────────────
             with dpg.child_window(border=False, no_scrollbar=True, tag="w_right"):
 
-                with dpg.group(horizontal=True):
-                    dpg.add_button(label="DISARMED", tag="ind_armed",
-                                   height=34, width=-2, callback=cb_arm_click)
-                    dpg.add_spacer(width=4)
-                    dpg.add_button(label="WEAPON SAFE", tag="ind_weapon",
-                                   height=34, width=-1)
+                dpg.add_text("CONTROLS", color=C_ACCENT[:3])
+                dpg.add_text("", tag="txt_controls", color=C_TEXT[:3], wrap=0)
+
+                dpg.add_separator()
+
+                with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchSame,
+                               pad_outerX=False, borders_outerH=False,
+                               borders_outerV=False, borders_innerV=False):
+                    dpg.add_table_column()
+                    dpg.add_table_column()
+                    with dpg.table_row():
+                        with dpg.table_cell():
+                            dpg.add_button(label="DISARMED", tag="ind_armed",
+                                           height=34, width=-1, callback=cb_arm_click)
+                        with dpg.table_cell():
+                            dpg.add_button(label="WEAPON SAFE", tag="ind_weapon",
+                                           height=34, width=-1)
+                    with dpg.table_row():
+                        with dpg.table_cell():
+                            dpg.add_button(label="DRIVE NORMAL", tag="ind_drive",
+                                           height=34, width=-1)
+                        with dpg.table_cell():
+                            dpg.add_button(label="KILLSWITCH OFF", tag="ind_kill",
+                                           height=34, width=-1)
+
                 _set_ind("ind_armed",  "DISARMED",    "danger")
                 _set_ind("ind_weapon", "WEAPON SAFE", "panel")
+                _set_ind("ind_drive",  "DRIVE NORMAL",   "panel")
+                _set_ind("ind_kill",   "KILLSWITCH OFF", "panel")
 
                 with dpg.tooltip("ind_armed"):
                     dpg.add_text("Click (or press arm key) to toggle arm state.")
@@ -482,18 +565,6 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                     dpg.add_text("SAFE = weapon off  (byte 127)")
                     dpg.add_text("IDLE = spinning low  (byte 160)")
                     dpg.add_text("ATTACK = full speed  (byte 255)")
-
-                dpg.add_spacer(height=4)
-
-                with dpg.group(horizontal=True):
-                    dpg.add_button(label="DRIVE NORMAL",   tag="ind_drive",
-                                   height=34, width=-2)
-                    dpg.add_spacer(width=4)
-                    dpg.add_button(label="KILLSWITCH OFF", tag="ind_kill",
-                                   height=34, width=-1)
-                _set_ind("ind_drive", "DRIVE NORMAL",   "panel")
-                _set_ind("ind_kill",  "KILLSWITCH OFF", "panel")
-
                 with dpg.tooltip("ind_kill"):
                     dpg.add_text("Sends failsafe byte=255.")
                     dpg.add_text("Robot enters deep sleep — power cycle to recover.")
@@ -501,15 +572,10 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                 dpg.add_separator()
 
                 dpg.add_text("EVENT LOG", color=C_ACCENT[:3])
-                with dpg.child_window(tag="w_log", height=LOG_H,
+                with dpg.child_window(tag="w_log", height=-1,
                                       border=False, horizontal_scrollbar=False):
                     for i in range(LOG_N):
                         dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3])
-
-                dpg.add_separator()
-
-                dpg.add_text("CONTROLS", color=C_ACCENT[:3])
-                dpg.add_text("", tag="txt_controls", color=C_TEXT[:3], wrap=0)
 
     # ── Keybind editor ────────────────────────────────────────────────────────
     with dpg.window(tag="kb_win", label="Keybinds — " + profiles.active["name"],
@@ -558,7 +624,6 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
             dpg.add_button(label="Close", callback=cb_close_kb, width=80)
 
     dpg.set_primary_window("primary", True)
-    _update_expo_curve(profiles.active.get("expo", 0.0))
 
 
 # ─── Per-frame UI update ──────────────────────────────────────────────────────
@@ -588,7 +653,6 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
 
     _update_bar("L", ml)
     _update_bar("R", mr)
-    _update_expo_curve(profiles.active.get("expo", 0.0))
 
     armed = _gs["armed"]
     ws    = _gs["weapon_state"]
@@ -616,19 +680,28 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     p  = profiles.active
     dm = p.get("drive_mode", "tank")
     kb = p.get("keybinds", _DEFAULT_KEYBINDS)
-    head = ([f"Fwd:   {key_display(kb.get('fwd_pos'))} / {key_display(kb.get('fwd_neg'))}",
-             f"Steer: {key_display(kb.get('right_pos'))} / {key_display(kb.get('right_neg'))}"]
-            if dm == "arcade" else
-            [f"L-Fwd: {key_display(kb.get('fwd_pos'))} / {key_display(kb.get('fwd_neg'))}",
-             f"R-Fwd: {key_display(kb.get('right_pos'))} / {key_display(kb.get('right_neg'))}"])
-    ctrl = head + [
-        f"Weapon:{key_display(kb.get('weapon'))}  (toggle idle)",
-        f"W.Rev: {key_display(kb.get('weapon_rev'))}  (hold=attack)",
-        f"Kill:  {key_display(kb.get('killswitch'))}",
-        f"Arm:   {key_display(kb.get('arm'))}",
-        f"Inv:   {key_display(kb.get('drive_invert'))}",
+    gp = p.get("gamepad", {})
+
+    def _fmt(label, kb_pos, kb_neg=None, gp_key=None):
+        k = (f"{key_display(kb.get(kb_pos))} / {key_display(kb.get(kb_neg))}"
+             if kb_neg else key_display(kb.get(kb_pos, "")))
+        g = gp_display(gp.get(gp_key)) if gp_key else ""
+        return f"{label:<8}{k:<16}{g}"
+
+    rows = (
+        [_fmt("Fwd",   "fwd_pos",    "fwd_neg",   "fwd"),
+         _fmt("Steer", "right_pos",  "right_neg", "steer")]
+        if dm == "arcade" else
+        [_fmt("L-Fwd", "fwd_pos",    "fwd_neg",   "fwd"),
+         _fmt("R-Fwd", "right_pos",  "right_neg", "right")]
+    ) + [
+        _fmt("Weapon",  "weapon",       None, "weapon"),
+        _fmt("W.Rev",   "weapon_rev",   None, "weapon_rev"),
+        _fmt("Kill",    "killswitch",   None, "killswitch"),
+        _fmt("Arm",     "arm",          None, "arm"),
+        _fmt("Invert",  "drive_invert", None, "drive_invert"),
     ]
-    dpg.set_value("txt_controls", "\n".join(ctrl))
+    dpg.set_value("txt_controls", "\n".join(rows))
 
     if dpg.is_item_shown("kb_win"):
         _refresh_kb_table(profiles)
@@ -709,6 +782,9 @@ def main() -> None:
             else:
                 motor_l = int(max(0, min(255, 127 + fwd   * 128)))
                 motor_r = int(max(0, min(255, 127 + right * 128)))
+
+            motor_l = int(max(0, min(255, 127 + (motor_l - 127) * _mult["L"] + _trim["L"])))
+            motor_r = int(max(0, min(255, 127 + (motor_r - 127) * _mult["R"] + _trim["R"])))
 
             if inv_raw and not prev_inv:
                 _gs["drive_inverted"] = not _gs["drive_inverted"]
