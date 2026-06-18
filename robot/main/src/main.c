@@ -7,7 +7,7 @@
 #include "motor_driver.h"
 #include "power_sensor_driver.h"
 #include "tempsensor_driver.h"
-#include "encoder_driver.h"
+#include "hall_sensor.h"
 #include "weapon_controller.h"
 #include "nrf24.h"
 
@@ -60,8 +60,8 @@ void task_radio(void *pvParameters)
     ESP_LOGI(TAG, "Initializing power sensors...");
     power_sensor_driver_init();
 
-    ESP_LOGI(TAG, "Initializing encoder...");
-    encoder_driver_init();
+    ESP_LOGI(TAG, "Initializing hall sensor...");
+    hall_sensor_init();
 
     ESP_LOGI(TAG, "Initializing weapon controller...");
     weapon_controller_init();
@@ -89,7 +89,7 @@ void task_radio(void *pvParameters)
                     uint8_t failsafe_raw = rx_buf[3];
 
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d  RPM: %.1f",
-                             left_raw, right_raw, weapon_raw, failsafe_raw, encoder_get_rpm());
+                             left_raw, right_raw, weapon_raw, failsafe_raw, hall_sensor_get_rpm());
 
                     // bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
                     //                     temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
@@ -183,7 +183,7 @@ void task_thermal(void *pvParameters)
         //          temp_get_temperature(TEMP_LEFT_WHEEL),
         //          temp_get_temperature(TEMP_RIGHT_WHEEL),
         //          temp_get_temperature(TEMP_WEAPON),
-        //          encoder_get_rpm());
+        //          hall_sensor_get_rpm());
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

@@ -1,5 +1,5 @@
 #include "weapon_controller.h"
-#include "encoder_driver.h"
+#include "hall_sensor.h"
 #include "motor_driver.h"
 #include "esp_timer.h"
 
@@ -36,7 +36,7 @@ void weapon_controller_update(void)
     float dt    = (float)(now - s_last_time) / 1e6f;
     s_last_time = now;
 
-    float error = s_target_rpm - encoder_get_rpm();
+    float error = s_target_rpm - hall_sensor_get_rpm();
 
     s_integral += error * dt;
 

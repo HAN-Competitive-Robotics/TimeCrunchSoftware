@@ -4,7 +4,7 @@ idf_component_register(
          "src/i2c_bus.c"
          "src/tempsensor_driver.c"
          "src/power_sensor_driver.c"
-         "src/encoder_driver.c"
+         "src/hall_sensor.c"
          "src/weapon_controller.c"
          "src/nrf24.c"
     INCLUDE_DIRS "./include"
