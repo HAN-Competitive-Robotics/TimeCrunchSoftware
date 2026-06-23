@@ -2,11 +2,12 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 
 LOG_MODULE_REGISTER(esb_radio, CONFIG_ESB_PTX_APP_LOG_LEVEL);
 
-static volatile bool g_ready = true;
+static atomic_t g_ready = ATOMIC_INIT(1);
 
 static struct esb_payload rx_payload;
 
@@ -15,13 +16,13 @@ static void event_handler(struct esb_evt const *event)
     switch (event->evt_id)
     {
     case ESB_EVENT_TX_SUCCESS:
-        g_ready = true;
+        atomic_set(&g_ready, 1);
         LOG_DBG("ESB TX success");
         break;
 
     case ESB_EVENT_TX_FAILED:
         esb_flush_tx();
-        g_ready = true;
+        atomic_set(&g_ready, 1);
         LOG_DBG("ESB TX done (no ACK expected)");
         break;
 
@@ -97,7 +98,7 @@ int esb_radio_init(void)
         return err;
     }
 
-    g_ready = true;
+    atomic_set(&g_ready, 1);
     LOG_INF("ESB radio initialized (PTX)");
     return 0;
 }
@@ -117,7 +118,7 @@ struct esb_payload esb_set_battlebot_payload(uint8_t motor1, uint8_t motor2, uin
 
 bool esb_radio_ready(void)
 {
-    return g_ready;
+    return (bool)atomic_get(&g_ready);
 }
 
 int esb_radio_send(struct esb_payload *pl)
@@ -125,7 +126,7 @@ int esb_radio_send(struct esb_payload *pl)
     int err = esb_write_payload(pl);
     if (err == 0)
     {
-        g_ready = false;
+        atomic_set(&g_ready, 0);
     }
     return err;
 }
