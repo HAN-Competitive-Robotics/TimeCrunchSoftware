@@ -10,7 +10,7 @@ BINDABLE_ACTIONS: list[tuple] = [
     ("right",        "Right (tank)",   True,  "right_pos",    "right_neg","right"),
     ("steer",        "Steer (arcade)", True,  "right_pos",    "right_neg","steer"),
     ("weapon",       "Weapon Toggle",  False, "weapon",       None,       "weapon"),
-    ("weapon_rev",   "Weapon Rev",     False, "weapon_rev",   None,       "weapon_rev"),
+    ("weapon_rev",   "Weapon Atk/Rev", False, "weapon_rev",   None,       "weapon_rev"),
     ("killswitch",   "Killswitch",     False, "killswitch",   None,       "killswitch"),
     ("arm",          "Arm Toggle",     False, "arm",          None,       "arm"),
     ("drive_invert", "Drive Invert",   False, "drive_invert", None,       "drive_invert"),

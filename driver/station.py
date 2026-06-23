@@ -76,6 +76,12 @@ def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
     return f"{ml:02x}{mr:02x}{wb:02x}{fb:02x}\n".encode()
 
 
+def _expo_curve_data(expo: float) -> tuple[list[float], list[float]]:
+    xs = [i / 20.0 - 1.0 for i in range(41)]
+    ys = [x * (1.0 - expo) + x ** 3 * expo for x in xs]
+    return xs, ys
+
+
 # ─── Font loading ─────────────────────────────────────────────────────────────
 
 def _try_load_font() -> None:
@@ -381,6 +387,8 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
         profiles.active["expo"] = val
         profiles.save()
         mapper.set_profile(profiles.active)
+        xs, ys = _expo_curve_data(val)
+        dpg.set_value("expo_series", [xs, ys])
 
     def _sync_trim(side, val):
         val = max(-127, min(127, val))
@@ -562,9 +570,11 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                     dpg.add_text("Click (or press arm key) to toggle arm state.")
                     dpg.add_text("Robot ignores drive while DISARMED.")
                 with dpg.tooltip("ind_weapon"):
-                    dpg.add_text("SAFE = weapon off  (byte 127)")
-                    dpg.add_text("IDLE = spinning low  (byte 160)")
-                    dpg.add_text("ATTACK = full speed  (byte 255)")
+                    dpg.add_text("SAFE   = weapon off         (byte 127)")
+                    dpg.add_text("IDLE   = spinning low fwd   (byte 160)")
+                    dpg.add_text("ATTACK = full speed fwd     (byte 255)")
+                    dpg.add_text("REV    = spinning low rev   (byte 95)")
+                    dpg.add_text("Atk/Rev key: hold in IDLE=attack, hold in SAFE=reverse spin.")
                 with dpg.tooltip("ind_kill"):
                     dpg.add_text("Sends failsafe byte=255.")
                     dpg.add_text("Robot enters deep sleep — power cycle to recover.")
@@ -594,6 +604,22 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                                  min_value=0.0, max_value=1.0,
                                  default_value=profiles.active.get("expo", 0.0),
                                  width=120, callback=cb_expo)
+
+        _expo0 = profiles.active.get("expo", 0.0)
+        _xs0, _ys0 = _expo_curve_data(_expo0)
+        with dpg.plot(tag="expo_plot", height=110, width=200,
+                      no_title=True, no_mouse_pos=True, no_box_select=True,
+                      no_menus=True):
+            xa = dpg.add_plot_axis(dpg.mvXAxis, tag="expo_xax",
+                                   no_tick_labels=True, no_gridlines=True)
+            ya = dpg.add_plot_axis(dpg.mvYAxis, tag="expo_yax",
+                                   no_tick_labels=True, no_gridlines=True)
+            dpg.set_axis_limits("expo_xax", -1.0, 1.0)
+            dpg.set_axis_limits("expo_yax", -1.0, 1.0)
+            dpg.add_line_series([-1.0, 1.0], [-1.0, 1.0], parent="expo_yax",
+                                tag="expo_linear", label="linear")
+            dpg.add_line_series(_xs0, _ys0, parent="expo_yax",
+                                tag="expo_series", label="expo")
 
         dpg.add_text("Click a cell to capture.  ESC cancels.  F2 / close to exit.",
                      color=C_DIM[:3])
@@ -663,8 +689,8 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
              "ARMED"    if armed else "DISARMED",
              "good"     if armed else "danger")
     _set_ind("ind_weapon",
-             {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK"}[ws],
-             {"safe": "panel",       "idle": "warn",        "attack": "attack"}[ws])
+             {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK", "idle_rev": "WEAPON REV"}[ws],
+             {"safe": "panel",       "idle": "warn",        "attack": "attack",         "idle_rev": "warn"}[ws])
     _set_ind("ind_drive",
              "DRIVE INVERTED" if inv  else "DRIVE NORMAL",
              "warn"           if inv  else "panel")
@@ -696,7 +722,7 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
          _fmt("R-Fwd", "right_pos",  "right_neg", "right")]
     ) + [
         _fmt("Weapon",  "weapon",       None, "weapon"),
-        _fmt("W.Rev",   "weapon_rev",   None, "weapon_rev"),
+        _fmt("W.Atk/Rv", "weapon_rev",  None, "weapon_rev"),
         _fmt("Kill",    "killswitch",   None, "killswitch"),
         _fmt("Arm",     "arm",          None, "arm"),
         _fmt("Invert",  "drive_invert", None, "drive_invert"),
@@ -754,7 +780,7 @@ def main() -> None:
 
     rate_hz   = cfg["serial"]["rate_hz"]
     last_send = 0.0
-    prev_inv = prev_arm = prev_wpn = False
+    prev_inv = prev_arm = prev_wpn = prev_overlay = False
 
     while dpg.is_dearpygui_running():
         now = time.time()
@@ -766,6 +792,9 @@ def main() -> None:
             _handle_joy_capture(event, profiles, mapper)
 
         overlay = dpg.is_item_shown("kb_win")
+        if overlay and not prev_overlay:
+            _gs["weapon_state"] = "safe"
+            _log_add("Keybind editor opened — weapon safed")
 
         inv_raw  = mapper.read_button("drive_invert")
         kill_raw = mapper.read_button("killswitch")
@@ -812,21 +841,27 @@ def main() -> None:
 
             if _gs["armed"]:
                 if wpn_btn and not prev_wpn:
-                    _gs["weapon_state"] = "safe" if _gs["weapon_state"] != "safe" else "idle"
+                    # Toggle weapon on (fwd idle) / off — also exits reverse spin
+                    _gs["weapon_state"] = "idle" if _gs["weapon_state"] in ("safe", "idle_rev") else "safe"
                 elif _gs["weapon_state"] == "idle" and wpn_rev:
-                    _gs["weapon_state"] = "attack"
+                    _gs["weapon_state"] = "attack"       # hold to escalate fwd
                 elif _gs["weapon_state"] == "attack" and not wpn_rev:
                     _gs["weapon_state"] = "idle"
+                elif _gs["weapon_state"] == "safe" and wpn_rev:
+                    _gs["weapon_state"] = "idle_rev"     # hold in safe = reverse spin
+                elif _gs["weapon_state"] == "idle_rev" and not wpn_rev:
+                    _gs["weapon_state"] = "safe"
 
-            weapon_byte = {"safe": 127, "idle": 160, "attack": 255}[_gs["weapon_state"]]
+            weapon_byte = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}[_gs["weapon_state"]]
         else:
             motor_l = motor_r = weapon_byte = 127
 
         failsafe_byte = 255 if (kill_raw or _gs["killswitch"]) else 0
 
-        prev_inv = inv_raw
-        prev_arm = arm_raw
-        prev_wpn = wpn_btn
+        prev_inv     = inv_raw
+        prev_arm     = arm_raw
+        prev_wpn     = wpn_btn
+        prev_overlay = overlay
 
         if now - last_send >= 1.0 / rate_hz:
             pkt = _hex_packet(motor_l, motor_r, weapon_byte, failsafe_byte)
