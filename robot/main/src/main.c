@@ -6,10 +6,13 @@
 #include "esp_sleep.h"
 #include "motor_driver.h"
 #include "power_sensor_driver.h"
-#include "tempsensor_driver.h"
 #include "hall_sensor.h"
 #include "weapon_controller.h"
 #include "nrf24.h"
+#include "robot_config.h"
+#if THERMAL_PROTECTION_ENABLED
+#include "tempsensor_driver.h"
+#endif
 
 static const char *TAG = "MAIN";
 
@@ -54,8 +57,10 @@ void task_radio(void *pvParameters)
     ESP_LOGI(TAG, "Initializing motor driver...");
     motor_driver_init();
 
-    // ESP_LOGI(TAG, "Initializing temperature sensors...");
-    // tempsensor_driver_init();
+#if THERMAL_PROTECTION_ENABLED
+    ESP_LOGI(TAG, "Initializing temperature sensors...");
+    tempsensor_driver_init();
+#endif
 
     ESP_LOGI(TAG, "Initializing power sensors...");
     power_sensor_driver_init();
@@ -68,7 +73,7 @@ void task_radio(void *pvParameters)
 
     ESP_LOGI(TAG, "Initializing nRF24...");
     ESP_ERROR_CHECK(nrf24_init());
-    ESP_ERROR_CHECK(nrf24_basic_config(address, 40, 4));
+    ESP_ERROR_CHECK(nrf24_basic_config(address, 40, BATTLEBOT_PAYLOAD_LEN));
     ESP_ERROR_CHECK(nrf24_init_irq());
 
     uint8_t status = nrf24_get_status();
@@ -79,7 +84,7 @@ void task_radio(void *pvParameters)
     while (1) {
         if (xSemaphoreTake(nrf24_irq_sem, pdMS_TO_TICKS(50)) == pdTRUE) {
             while (nrf24_data_ready()) {
-                if (nrf24_receive_packet(rx_buf, 4) == ESP_OK) {
+                if (nrf24_receive_packet(rx_buf, BATTLEBOT_PAYLOAD_LEN) == ESP_OK) {
                     last_packet_tick = xTaskGetTickCount();
                     have_packet = true;
 
@@ -91,9 +96,22 @@ void task_radio(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d  RPM: %.1f",
                              left_raw, right_raw, weapon_raw, failsafe_raw, hall_sensor_get_rpm());
 
-                    // bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
-                    //                     temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
-                    //                     temp_get_temperature(TEMP_WEAPON)      >= KILLSWITCH_TEMP_C;
+#if THERMAL_PROTECTION_ENABLED
+                    bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
+                                        temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
+                                        temp_get_temperature(TEMP_WEAPON)      >= KILLSWITCH_TEMP_C;
+                    if (temp_critical && !state.hard_failsafe) {
+                        state.hard_failsafe   = true;
+                        state.weapon_throttle = 0;
+                        state.failsafe_active = true;
+                        motor_set_throttle(MOTOR_LEFT_WHEEL,  0);
+                        motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
+                        xQueueOverwrite(state_queue, &state);
+                        ESP_LOGW(TAG, "THERMAL SHUTDOWN — entering deep sleep, power cycle to recover");
+                        vTaskDelay(pdMS_TO_TICKS(200));
+                        esp_deep_sleep_start();
+                    }
+#endif
 
                     if ((failsafe_raw > 127) && !state.hard_failsafe) {
                         state.hard_failsafe   = true;
@@ -170,6 +188,7 @@ void task_weapon(void *pvParameters)
     }
 }
 
+#if THERMAL_PROTECTION_ENABLED
 /* --------------------------------------------------------------------------
  * task_thermal — Thermal safety, 1 Hz  (Core 1)
  * -------------------------------------------------------------------------- */
@@ -178,15 +197,16 @@ void task_thermal(void *pvParameters)
     vTaskDelay(pdMS_TO_TICKS(500));
 
     while (1) {
-        // motor_safety_check();
-        // ESP_LOGD(TAG, "TEMP: L=%.1f°C R=%.1f°C W=%.1f°C  RPM=%.0f",
-        //          temp_get_temperature(TEMP_LEFT_WHEEL),
-        //          temp_get_temperature(TEMP_RIGHT_WHEEL),
-        //          temp_get_temperature(TEMP_WEAPON),
-        //          hall_sensor_get_rpm());
+        motor_safety_check();
+        ESP_LOGD(TAG, "TEMP: L=%.1f°C R=%.1f°C W=%.1f°C  RPM=%.0f",
+                 temp_get_temperature(TEMP_LEFT_WHEEL),
+                 temp_get_temperature(TEMP_RIGHT_WHEEL),
+                 temp_get_temperature(TEMP_WEAPON),
+                 hall_sensor_get_rpm());
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
+#endif
 
 /* --------------------------------------------------------------------------
  * Startup
@@ -199,7 +219,9 @@ void app_main(void)
         return;
     }
 
-    xTaskCreatePinnedToCore(task_radio,   "task_radio",   6144, NULL, 3, &h_radio,   0);
-    xTaskCreatePinnedToCore(task_weapon,  "task_weapon",  4096, NULL, 2, &h_weapon,  1);
+    xTaskCreatePinnedToCore(task_radio,  "task_radio",  6144, NULL, 3, &h_radio,  0);
+    xTaskCreatePinnedToCore(task_weapon, "task_weapon", 4096, NULL, 2, &h_weapon, 1);
+#if THERMAL_PROTECTION_ENABLED
     xTaskCreatePinnedToCore(task_thermal, "task_thermal", 4096, NULL, 1, &h_thermal, 1);
+#endif
 }
