@@ -6,6 +6,7 @@ idf_component_register(
          "src/power_sensor_driver.c"
          "src/hall_sensor.c"
          "src/weapon_controller.c"
+         "src/safety_monitor.c"
          "src/nrf24.c"
     INCLUDE_DIRS "./include"
 )

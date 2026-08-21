@@ -123,7 +123,44 @@ stateDiagram-v2
 
 ### Packet Timeout (Soft Failsafe)
 
-500 ms without a valid packet → stop all motors, zero weapon throttle, set `failsafe_active`. Fully automatic recovery on next valid packet.
+`LINK_LOSS_TIMEOUT_MS` (currently 500 ms) without a valid packet → stop all motors, zero weapon throttle, set `failsafe_active`. Fully automatic recovery on next valid packet.
+
+This value is inherited rather than measured. `task_radio` now logs the observed
+inter-packet gap distribution every 5 s (`LINK: … <=50:… <=100:… >500:…`), so
+the timeout can be set from the real worst-case gap plus margin. Tightening it
+below the link's actual p100 gap makes the robot cut out mid-match on ordinary
+2.4 GHz interference.
+
+### Task Watchdog (300 ms)
+
+`task_radio` and `task_weapon` subscribe to the ESP-IDF task watchdog. Either
+one failing to check in for `TASK_WDT_TIMEOUT_MS` panics the chip. The ESCs see
+no PWM while it reboots and disarm, so a hung control task cannot leave the
+weapon powered. `task_thermal` runs at 1 Hz and is deliberately not subscribed,
+and the idle tasks are excluded because they legitimately starve under load.
+
+### Weapon Feedback Fault
+
+The weapon PI loop closes on Hall-sensor RPM. If the sensor stops reporting
+while the weapon is being driven, that RPM is not a measurement, and closing a
+loop on it is worse than not closing one: measured RPM reads 0, the error
+becomes the entire target, and the integrator drives the output to full
+throttle on a spinning weapon.
+
+`safety_monitor` watches for the weapon being commanded above 20% for
+`WEAPON_FEEDBACK_FAULT_MS` with no Hall edge at all, and when the INA3221 is
+fitted uses weapon current to suppress false positives when the ESC is not
+actually delivering power. On fault the controller holds its integrator at zero
+and emits the bare feed-forward term, which is exactly the open-loop behaviour
+this firmware shipped before the loop existed.
+
+### Battery Sag (optional)
+
+The weapon is the largest load on the pack, so dropping it first preserves
+drive and radio. Disabled by default: set `WEAPON_BATTERY_CELLS` in
+`robot_config.h` and validate the threshold on the bench under real weapon
+load. A cut level taken from a datasheet rather than a measurement will drop
+the weapon mid-match, since spin-up sags the pack hard and briefly.
 
 ### Killswitch (Hard Failsafe)
 
@@ -161,7 +198,10 @@ any → safe (disarm or failsafe)
 | I²C sensor failure | isnan(temp) check | Cut associated motor | Yes — if sensor recovers |
 | Serial link drop | Robot packet timeout | Stop motors | Yes — auto |
 | ESP32 watchdog reset | Firmware crash | All GPIO reset | Depends on crash cause |
-| Weapon encoder failure | No RPM → PI output is FF | Weapon spins at 50% FF | Manual intervention |
+| Real-time task stalls | Task watchdog (300 ms) | Panic + reset; ESCs disarm on loss of PWM | Yes — on reboot |
+| Weapon Hall sensor failure | `safety_monitor`: commanded > 20% for 1500 ms with no edge | Integrator held at zero, weapon runs open-loop at 50% FF | Yes — auto when edges return |
+| Pack voltage sag | `safety_monitor` (20 Hz, INA3221) | Weapon inhibited, drive and radio preserved | Yes — on recovery + hysteresis |
+| Brownout reset | `esp_reset_reason()` at boot | Logged; robot comes up disarmed | Yes — on reboot |
 
 ---
 
@@ -229,14 +269,23 @@ SPI3_HOST (VSPI), 8 MHz, mode 0, manual CS (GPIO 5), polling transmit (no DMA). 
 
 Group 0, 1 MHz resolution (1 µs/tick), 20,000-tick period (50 Hz). PWM_MIN=1000, PWM_NEUTRAL=1500, PWM_MAX=2000 (all in µs). All three ESCs share one timer — signals are synchronised.
 
-### PCNT (Encoder)
+### Hall Sensor (Weapon RPM)
 
-GPIO 15, both-edge count, 1000 ns glitch filter, sampled every 20 ms. RPM = count × 1500 (formula: `count × (60 / 0.02) / 2`).
+GPIO 15, both-edge GPIO interrupt, 200 µs software glitch reject, exponentially
+smoothed edge interval. RPM = `60e6 / (period_µs × 2)`.
+
+This replaced a PCNT counter that summed edges over a fixed 20 ms window, where
+RPM = `count × 1500`. That grid quantised the signal to 1500 RPM per count, so
+the 5000 RPM attack target was not representable at all and the closed-loop
+gains could not be tuned against it. Timing the interval instead gives about
+0.83 RPM per microsecond at 5000 RPM, roughly 1800× finer. See
+[Weapon Tuning](firmware/weapon-tuning.md).
 
 ---
 
 ## See Also
 
 - [Robot Firmware](firmware/robot-firmware.md)
+- [Weapon Tuning](firmware/weapon-tuning.md) — closing the speed loop
 - [Hardware Pinout](hardware/pinout.md)
 - [Hardware Wiring](hardware/wiring.md)
