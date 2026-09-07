@@ -4,6 +4,8 @@
 import sys
 import serial.tools.list_ports
 
+import wsl_common
+
 
 def is_esp32(port):
     desc = (port.description or "").lower()
@@ -82,6 +84,10 @@ def main():
         print("Other ports:")
         for p in other:
             print(f"  {p.device:<20} {p.description}")
+
+    if not esp32 and not dongle and wsl_common.is_wsl():
+        print()
+        print(wsl_common.USBIPD_HINT)
 
     # Return first found port as convenience for shell callers
     if esp32:

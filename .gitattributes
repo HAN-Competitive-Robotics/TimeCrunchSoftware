@@ -1,0 +1,8 @@
+# Normalize tracked text files to LF in the working tree on every platform.
+#
+# Without this, a Windows clone with core.autocrlf=true checks out robot/idf
+# with CRLF endings, and running it under WSL fails with the unhelpful
+# "bad interpreter: /bin/bash^M". robot/test/Makefile breaks the same way.
+* text=auto eol=lf
+
+*.pdf binary
