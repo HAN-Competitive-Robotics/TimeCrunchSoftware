@@ -163,7 +163,13 @@ void task_radio(void *pvParameters)
                         motor_set_throttle(MOTOR_LEFT_WHEEL,  0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
                         xQueueOverwrite(state_queue, &state);
-                        ESP_LOGW(TAG, "THERMAL SHUTDOWN — entering deep sleep, power cycle to recover");
+                        ESP_LOGW(TAG, "THERMAL SHUTDOWN — L=%.1f R=%.1f W=%.1f °C, "
+                                      "limit %.1f °C — entering deep sleep, "
+                                      "power cycle to recover",
+                                 temp_get_temperature(TEMP_LEFT_WHEEL),
+                                 temp_get_temperature(TEMP_RIGHT_WHEEL),
+                                 temp_get_temperature(TEMP_WEAPON),
+                                 KILLSWITCH_TEMP_C);
                         /* Leaving the watchdog subscribed here would panic the
                          * chip during the settle delay and turn a controlled
                          * shutdown into a reboot, which re-arms everything. */
@@ -180,7 +186,22 @@ void task_radio(void *pvParameters)
                         motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
                         motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
                         xQueueOverwrite(state_queue, &state);
-                        ESP_LOGW(TAG, "KILLSWITCH  entering deep sleep, power cycle to recover");
+                        ESP_LOGW(TAG, "KILLSWITCH — failsafe byte %u (>127) in packet "
+                                      "%02X %02X %02X %02X — entering deep sleep, "
+                                      "power cycle to recover",
+                                 failsafe_raw, left_raw, right_raw, weapon_raw, failsafe_raw);
+                        /* A disconnected nRF24 leaves MISO floating high, so every
+                         * SPI read returns 0xFF. STATUS then has RX_DR set, the
+                         * driver reports a packet, and byte 3 reads as 255, which
+                         * lands here looking exactly like a real killswitch. Say so,
+                         * because the two are otherwise indistinguishable. */
+                        if (left_raw == 0xFF && right_raw == 0xFF &&
+                            weapon_raw == 0xFF && failsafe_raw == 0xFF) {
+                            ESP_LOGE(TAG, "  ...but every byte is 0xFF, which is a "
+                                          "floating SPI bus, not a real packet. Check "
+                                          "the nRF24 wiring: STATUS should read 0x0E, "
+                                          "and 0xFF means the module is not responding.");
+                        }
                         /* Leaving the watchdog subscribed here would panic the
                          * chip during the settle delay and turn a controlled
                          * shutdown into a reboot, which re-arms everything. */
@@ -205,7 +226,11 @@ void task_radio(void *pvParameters)
 
         if (have_packet &&
             (xTaskGetTickCount() - last_packet_tick) >= pdMS_TO_TICKS(LINK_LOSS_TIMEOUT_MS)) {
-            ESP_LOGW(TAG, "Packet timeout (%d ms)  stopping motors", LINK_LOSS_TIMEOUT_MS);
+            ESP_LOGW(TAG, "LINK LOSS — no packet for %lu ms (limit %d ms), "
+                          "%lu received before this — stopping motors",
+                     (unsigned long)((xTaskGetTickCount() - last_packet_tick) * portTICK_PERIOD_MS),
+                     LINK_LOSS_TIMEOUT_MS,
+                     (unsigned long)stats.packets);
             motor_set_throttle(MOTOR_LEFT_WHEEL, 0);
             motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
 

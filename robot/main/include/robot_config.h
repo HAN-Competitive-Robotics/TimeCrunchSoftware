@@ -4,7 +4,7 @@
  * system deep-sleep at 90 °C).  Set to 0 if temperature sensors are not
  * installed — tempsensor_driver_init() will not be called and task_thermal
  * will not be created. */
-#define THERMAL_PROTECTION_ENABLED 1
+#define THERMAL_PROTECTION_ENABLED 0
 
 /* Byte length of every over-the-air packet.  Must match nrf24_basic_config()
  * call in task_radio and the driver station's _hex_packet() encoding:
