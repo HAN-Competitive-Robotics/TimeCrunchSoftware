@@ -32,13 +32,35 @@ int usb_cdc_init(void)
 	return 0;
 }
 
+/*
+ * uart_fifo_read()/uart_fifo_fill() are the interrupt-driven API and are only
+ * valid from inside a UART ISR, after uart_irq_rx_ready() reports data. This
+ * firmware never calls uart_irq_callback_set() or uart_irq_rx_enable(), so
+ * uart_fifo_read() returned 0 forever from usb_rx_thread_fn() and the CDC OUT
+ * endpoint was never drained. The host filled its driver buffer and then
+ * blocked in write() permanently.
+ *
+ * uart_poll_in()/uart_poll_out() are the polling API and are safe to call from
+ * a thread, which is what usb_rx_thread_fn() already is.
+ */
 int usb_cdc_read(uint8_t *buf, size_t max_len)
 {
 	if (!cdc_dev || !buf || max_len == 0) {
 		return 0;
 	}
 
-	return uart_fifo_read(cdc_dev, buf, (int)max_len);
+	size_t n = 0;
+
+	while (n < max_len) {
+		unsigned char c;
+
+		if (uart_poll_in(cdc_dev, &c) != 0) {
+			break;
+		}
+		buf[n++] = c;
+	}
+
+	return (int)n;
 }
 
 int usb_cdc_write(const uint8_t *buf, size_t len)
@@ -47,5 +69,9 @@ int usb_cdc_write(const uint8_t *buf, size_t len)
 		return 0;
 	}
 
-	return uart_fifo_fill(cdc_dev, buf, (int)len);
+	for (size_t i = 0; i < len; i++) {
+		uart_poll_out(cdc_dev, buf[i]);
+	}
+
+	return (int)len;
 }
