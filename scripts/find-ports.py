@@ -10,9 +10,13 @@ import wsl_common
 def is_esp32(port):
     desc = (port.description or "").lower()
     hwid = (port.hwid or "").lower()
+    # "espressif" covers boards that expose a native/bridged USB CDC port
+    # (/dev/ttyACM*) instead of the usual CP210x or CH340 UART bridge. It must
+    # be matched here, before the ttyACM fallback in find_ports() claims the
+    # port for the dongle.
     return any(
         k in desc or k in hwid
-        for k in ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial"]
+        for k in ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial", "espressif"]
     )
 
 

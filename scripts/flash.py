@@ -41,7 +41,9 @@ def error(msg):
 def find_esp32_port():
     import serial.tools.list_ports
 
-    keywords = ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial"]
+    # "espressif" covers boards that expose a native/bridged USB CDC port
+    # (/dev/ttyACM*) instead of the usual CP210x or CH340 UART bridge.
+    keywords = ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial", "espressif"]
     for p in serial.tools.list_ports.comports():
         desc = (p.description or "").lower()
         hwid = (p.hwid or "").lower()
