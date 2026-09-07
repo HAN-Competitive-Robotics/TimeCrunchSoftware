@@ -1,2 +1,4 @@
-pygame==2.6.1
-pyserial==3.5
+# The ground station is the only Python component with dependencies.
+# Kept as a pointer so this file cannot drift from the real list again
+# (it previously omitted dearpygui, which station.py imports at startup).
+-r driver/requirements.txt
