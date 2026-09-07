@@ -1,8 +1,10 @@
-"""Key-name ↔ DPG key-constant mapping.
+"""Key-name to DPG key-constant mapping.
 
-Profile files store key names as strings ("w", "space", "lshift" …).
-This module maps those names to DPG integer constants so InputMapper can call
-dpg.is_key_down(), and maps DPG constants back to names for the capture flow.
+drive_modes.py names keys as strings ("w", "space", "lshift"). This maps them
+to the integer constants InputMapper passes to dpg.is_key_down().
+
+Display strings are deliberately ASCII: DearPyGui only loads the basic Latin
+glyph range, so arrows and box-drawing characters render as "?".
 """
 from __future__ import annotations
 import dearpygui.dearpygui as dpg
@@ -17,7 +19,7 @@ _DISPLAY: dict[str, str] = {
     "space":  "Space",  "return": "Enter",
     "escape": "Esc",    "tab":    "Tab",
     "backspace": "Bksp","delete": "Del",
-    "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "up": "Up", "down": "Down", "left": "Left", "right": "Right",
     **{f"f{i}": f"F{i}" for i in range(1, 13)},
 }
 
@@ -71,20 +73,15 @@ def resolve_key(name: str | None) -> int | None:
     return _NAME_TO_DPG.get(name.lower())
 
 
-def dpg_key_to_name(code: int) -> str | None:
-    """DPG key constant → profile key name, or None if unmapped."""
-    return _DPG_TO_NAME.get(code)
-
-
 def key_display(name: str | None) -> str:
     if not name:
-        return "—"
+        return "-"
     return _DISPLAY.get(name, name.upper() if len(name) == 1 else name.capitalize())
 
 
 def gp_display(gp_cfg: dict | None) -> str:
     if not gp_cfg:
-        return "—"
+        return "-"
     if "button" in gp_cfg:
         return f"B{gp_cfg['button']}"
     if "axis" in gp_cfg:
@@ -92,4 +89,4 @@ def gp_display(gp_cfg: dict | None) -> str:
         if "threshold" in gp_cfg:
             return f"Axis{n} trig"
         return f"Axis{n}{' inv' if gp_cfg.get('invert') else ''}"
-    return "—"
+    return "-"
