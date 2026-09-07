@@ -22,6 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import wsl_common
+
 REPO_ROOT        = Path(__file__).resolve().parent.parent
 ROBOT_DIR        = REPO_ROOT / "robot"
 WEAPON_MOTOR_DIR = REPO_ROOT / "weapon-motor"
@@ -65,6 +67,13 @@ def find_esp32_port():
     return None
 
 
+def _no_port_error():
+    msg = "No ESP32 port found. Plug it in or pass the port manually."
+    if wsl_common.is_wsl():
+        msg += "\n" + wsl_common.USBIPD_HINT
+    error(msg)
+
+
 def check_port_available(port):
     import serial
     try:
@@ -91,12 +100,15 @@ def check_port_available(port):
                     "Check Resource Monitor (resmon.exe) → CPU tab → Associated Handles "
                     f"and search for '{port}' to find the process using this port."
                 )
-            error(
+            msg = (
                 f"Cannot open {port}.\n"
                 "Close any monitor/screen/minicom sessions first, then retry.\n"
                 "  Linux/macOS: pkill -f monitor\n"
                 "  Windows:     close the serial terminal or IDE holding the port"
             )
+            if wsl_common.is_wsl():
+                msg += "\n" + wsl_common.DIALOUT_HINT
+            error(msg)
         return True
 
 
@@ -123,16 +135,32 @@ def _idf_path():
             Path(os.environ.get("PROGRAMFILES", "")) / "Espressif" / "esp-idf",
             Path(os.environ.get("LOCALAPPDATA", "")) / "Espressif" / "esp-idf",
         ]
+        # The official Windows offline installer lands in C:\Espressif\frameworks\
+        # under a version-suffixed directory, which none of the paths above match.
+        import glob
+        candidates += [
+            Path(p) for p in sorted(glob.glob("C:/Espressif/frameworks/esp-idf-v*"), reverse=True)
+        ]
 
     for idf_path in candidates:
         if _is_valid_idf_path(idf_path):
             return idf_path
 
-    error(
+    msg = (
         "ESP-IDF not found.\n"
         "  • Set the IDF_PATH environment variable, or\n"
         "  • Install ESP-IDF to ~/esp/esp-idf (or C:\\esp\\esp-idf on Windows)."
     )
+    if wsl_common.is_wsl():
+        # A Windows-side install under /mnt/c is deliberately not a candidate:
+        # export.sh is present, so it would be picked up and then fail at build
+        # time because the toolchain binaries are .exe.
+        msg += (
+            "\n  WSL detected. An ESP-IDF installed on the Windows side cannot be used\n"
+            "  from WSL. Install it inside WSL instead:\n"
+            "    ./scripts/setup-wsl.sh"
+        )
+    error(msg)
 
 
 def _find_idf_py(idf_path):
@@ -259,7 +287,7 @@ def interactive():
         if choice == "1":
             port = find_esp32_port()
             if not port:
-                error("No ESP32 port found. Plug it in or pass the port manually.")
+                _no_port_error()
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
             flash_robot(port, monitor=True)
@@ -270,7 +298,7 @@ def interactive():
         elif choice == "3":
             port = find_esp32_port()
             if not port:
-                error("No ESP32 port found. Plug it in or pass the port manually.")
+                _no_port_error()
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
             flash_robot(port, monitor=False)
@@ -280,7 +308,7 @@ def interactive():
         elif choice == "4":
             port = find_esp32_port()
             if not port:
-                error("No ESP32 port found. Plug it in or pass the port manually.")
+                _no_port_error()
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
             flash_weapon_motor(port, "calibrate", monitor=True)
@@ -288,7 +316,7 @@ def interactive():
         elif choice == "5":
             port = find_esp32_port()
             if not port:
-                error("No ESP32 port found. Plug it in or pass the port manually.")
+                _no_port_error()
             info(f"Using ESP32 port: {port}")
             check_port_available(port)
             flash_weapon_motor(port, "test", monitor=True)
@@ -344,7 +372,7 @@ def main():
         return
 
     if not port:
-        error("No ESP32 port found. Plug it in or pass the port manually.")
+        _no_port_error()
 
     check_port_available(port)
     monitor = not args.no_monitor

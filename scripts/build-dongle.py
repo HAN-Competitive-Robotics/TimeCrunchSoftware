@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import wsl_common
+
 
 REPO_ROOT        = Path(__file__).resolve().parent.parent
 RADIO_DONGLE_DIR = REPO_ROOT / "radio-dongle"
@@ -23,17 +25,6 @@ def info(msg):
 def error(msg):
     print(f"[build-dongle] ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
-
-
-def _is_wsl():
-    if platform.system() != "Linux":
-        return False
-    if "WSL_DISTRO_NAME" in os.environ or "WSLENV" in os.environ:
-        return True
-    try:
-        return "microsoft" in Path("/proc/version").read_text().lower()
-    except Exception:
-        return False
 
 
 def find_west():
@@ -66,7 +57,7 @@ def find_west():
                 if matches:
                     return matches[0]
 
-    if _is_wsl():
+    if wsl_common.is_wsl():
         import glob
         wsl_patterns = [
             "/mnt/c/ncs/toolchains/*/bin/west*",
@@ -78,7 +69,7 @@ def find_west():
                 return matches[0]
 
     wsl_hint = ""
-    if _is_wsl():
+    if wsl_common.is_wsl():
         wsl_hint = (
             "\n  WSL detected. Either:\n"
             "    1. Install nRF Connect SDK inside WSL, or\n"
@@ -118,7 +109,7 @@ def find_nrfutil():
                 if mac_nrfutil.exists():
                     return str(mac_nrfutil)
 
-    if _is_wsl():
+    if wsl_common.is_wsl():
         import glob
         wsl_patterns = [
             "/mnt/c/ncs/toolchains/*/nrfutil/home/bin/nrfutil*",
@@ -129,7 +120,7 @@ def find_nrfutil():
                 return matches[0]
 
     wsl_hint = ""
-    if _is_wsl():
+    if wsl_common.is_wsl():
         wsl_hint = (
             "\n  WSL detected. Either:\n"
             "    1. Install nRF Connect SDK inside WSL, or\n"
