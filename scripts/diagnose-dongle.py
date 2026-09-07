@@ -162,19 +162,14 @@ def section_live(port, do_write):
         except Exception as e:
             print(f"write FAILED: {type(e).__name__}: {e}")
 
-    print("\nreading for 3s (press the dongle RESET button now to catch boot log)")
+    print("\nreading quietly for 2s (no reset yet)")
     t0, got = time.time(), b""
-    while time.time() - t0 < 3.0:
+    while time.time() - t0 < 2.0:
         try:
             got += ser.read(256)
-        except Exception as e:
-            print(f"read error: {type(e).__name__}: {e}")
+        except Exception:
             break
-    if got:
-        print("--- dongle said ---")
-        print(got.decode(errors="replace"))
-    else:
-        print("(silence)")
+    print(got.decode(errors="replace") if got else "(silence, expected when idle)")
 
     try:
         ser.close()
@@ -182,11 +177,80 @@ def section_live(port, do_write):
         pass
 
 
+def _find_dongle_port():
+    import serial.tools.list_ports
+    for p in serial.tools.list_ports.comports():
+        if p.vid in DONGLE_VIDS:
+            return p.device
+    return None
+
+
+def section_bootlog(port, seconds=25):
+    """Catch the init log, reconnecting across the reset's re-enumeration.
+
+    A reset drops the USB device and brings it back, so the log we want
+    arrives on a new handle. Reopen in a loop, and re-scan for the port in
+    case the OS assigns a different one.
+    """
+    hdr("5. BOOT LOG")
+    import serial
+
+    print("PRESS THE RESET BUTTON ONCE NOW  (a short press and release).")
+    print("Do NOT hold it, and do NOT unplug: holding it during a replug is")
+    print("DFU mode, where the application never runs and prints nothing.")
+    print(f"Listening on {port} for {seconds}s, reconnecting as needed.")
+    print("-" * 68)
+
+    end = time.time() + seconds
+    ser, got = None, b""
+
+    while time.time() < end:
+        if ser is None:
+            try:
+                ser = serial.Serial(port, 115200, timeout=0.2)
+            except Exception:
+                rescanned = _find_dongle_port()
+                if rescanned and rescanned != port:
+                    print(f"\n[port moved to {rescanned}]")
+                    port = rescanned
+                time.sleep(0.1)
+                continue
+        try:
+            d = ser.read(256)
+            if d:
+                got += d
+                sys.stdout.write(d.decode(errors="replace"))
+                sys.stdout.flush()
+        except Exception:
+            try:
+                ser.close()
+            except Exception:
+                pass
+            ser = None
+
+    if ser is not None:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+    print()
+    print("-" * 68)
+    if not got:
+        print("NOTHING received across the whole window.")
+        print("If the LED is also dark, the firmware is not running its main")
+        print("loop at all, which points at an init failure before that point.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Diagnose the nRF52840 dongle link")
     ap.add_argument("--port", help="Force a port instead of auto-detecting")
     ap.add_argument("--no-write", action="store_true",
                     help="Skip the write test (read-only)")
+    ap.add_argument("--no-reset", action="store_true",
+                    help="Skip the boot-log capture that needs a RESET press")
+    ap.add_argument("--reset-window", type=int, default=25, metavar="SEC",
+                    help="Seconds to listen for the boot log (default 25)")
     args = ap.parse_args()
 
     print("nRF52840 dongle diagnostics  (paste this whole output)")
@@ -197,11 +261,13 @@ def main():
     port = args.port or (candidates[0] if candidates else None)
     if port:
         section_live(port, do_write=not args.no_write)
+        if not args.no_reset:
+            section_bootlog(port, seconds=args.reset_window)
     else:
         hdr("4. LIVE TEST")
         print("Skipped: no dongle port found. Pass --port COMx to force one.")
 
-    hdr("5. ANSWER THESE BY EYE")
+    hdr("6. ANSWER THESE BY EYE")
     print("a) Is the dongle's LED blinking about once a second?  YES / NO")
     print("   (it should blink constantly whenever the firmware is running,")
     print("    with or without any data arriving)")
