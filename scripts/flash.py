@@ -44,9 +44,15 @@ def find_esp32_port():
     # "espressif" covers boards that expose a native/bridged USB CDC port
     # (/dev/ttyACM*) instead of the usual CP210x or CH340 UART bridge.
     keywords = ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial", "espressif"]
+    # Windows calls the flashed dongle "USB Serial Device", which matches the
+    # "usb serial" keyword above. Exclude it by vendor ID (1915 = Nordic,
+    # 2fe3 = Zephyr) so we never flash robot firmware to the radio dongle.
+    dongle_vids = ("vid:pid=1915", "vid:pid=2fe3")
     for p in serial.tools.list_ports.comports():
         desc = (p.description or "").lower()
         hwid = (p.hwid or "").lower()
+        if any(v in hwid for v in dongle_vids):
+            continue
         if any(k in desc or k in hwid for k in keywords):
             return p.device
 
@@ -57,7 +63,9 @@ def find_esp32_port():
     elif platform.system() == "Linux":
         patterns = ["/dev/ttyUSB*"]
     elif platform.system() == "Windows":
-        ports = [p.device for p in serial.tools.list_ports.comports() if "COM" in p.device.upper()]
+        ports = [p.device for p in serial.tools.list_ports.comports()
+                 if "COM" in p.device.upper()
+                 and not any(v in (p.hwid or "").lower() for v in dongle_vids)]
         if ports:
             return ports[0]
 

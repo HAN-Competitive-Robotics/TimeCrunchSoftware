@@ -23,9 +23,13 @@ def is_esp32(port):
 def is_dongle(port):
     desc = (port.description or "").lower()
     hwid = (port.hwid or "").lower()
+    # Windows names the flashed dongle generically as "USB Serial Device", which
+    # collides with the "usb serial" ESP32 keyword, so match the vendor IDs too:
+    # 1915 is Nordic (bootloader), 2fe3 is the Zephyr Project (running firmware).
     return any(
         k in desc or k in hwid
-        for k in ["nordic", "segger", "j-link", "usb cdc", "nrf52", "nrf52840"]
+        for k in ["nordic", "segger", "j-link", "usb cdc", "nrf52", "nrf52840",
+                  "vid:pid=1915", "vid:pid=2fe3"]
     )
 
 
@@ -34,11 +38,13 @@ def find_ports():
     dongle = []
     other = []
 
+    # Dongle first: its match is vendor-ID specific, while the ESP32 keywords
+    # include the generic "usb serial" that Windows applies to the dongle too.
     for p in serial.tools.list_ports.comports():
-        if is_esp32(p):
-            esp32.append(p)
-        elif is_dongle(p):
+        if is_dongle(p):
             dongle.append(p)
+        elif is_esp32(p):
+            esp32.append(p)
         else:
             other.append(p)
 

@@ -189,6 +189,12 @@ def build(clean=False):
     info(f"Done. Artifacts in {BUILD_DIR}")
 
 
+def _has_subcommand(nrfutil_home, name):
+    """nrfutil resolves subcommands as <NRFUTIL_HOME>/bin/nrfutil-<name>."""
+    return any((nrfutil_home / "bin" / f"nrfutil-{name}{ext}").exists()
+               for ext in ("", ".exe"))
+
+
 def flash(key_file=None):
     nrfutil = find_nrfutil()
     env      = setup_env()
@@ -202,22 +208,30 @@ def flash(key_file=None):
 
     info("Flashing via USB DFU (put dongle in bootloader mode first)...")
 
-    nrf5sdk_tool = local_nrfutil_home / "bin" / "nrfutil-nrf5sdk-tools"
-    if not nrf5sdk_tool.exists():
+    toolchain_home = env.get("NRFUTIL_HOME", "")
+    env["NRFUTIL_HOME"] = str(local_nrfutil_home)
+    local_nrfutil_home.mkdir(parents=True, exist_ok=True)
+    (local_nrfutil_home / "bin").mkdir(parents=True, exist_ok=True)
+
+    if not _has_subcommand(local_nrfutil_home, "nrf5sdk-tools"):
         info("Installing nrf5sdk-tools (one-time)...")
-        local_nrfutil_home.mkdir(parents=True, exist_ok=True)
-        (local_nrfutil_home / "bin").mkdir(parents=True, exist_ok=True)
-        device_cmd = Path(env.get("NRFUTIL_HOME", "")) / "bin" / "nrfutil-device"
-        if device_cmd.exists():
-            dest = local_nrfutil_home / "bin" / "nrfutil-device"
-            try:
-                dest.symlink_to(device_cmd)
-            except OSError:
-                shutil.copy2(str(device_cmd), str(dest))
-        env["NRFUTIL_HOME"] = str(local_nrfutil_home)
         subprocess.run([nrfutil, "install", "nrf5sdk-tools"], env=env, check=True)
 
-    env["NRFUTIL_HOME"] = str(local_nrfutil_home)
+    # 'device' is a separate subcommand and is what actually programs the
+    # dongle. Reuse the NCS toolchain's copy when it ships one, otherwise
+    # fetch it, because nrfutil resolves subcommands under NRFUTIL_HOME and
+    # that is pointed at the repo-local directory above.
+    if not _has_subcommand(local_nrfutil_home, "device"):
+        src = Path(toolchain_home) / "bin" / "nrfutil-device" if toolchain_home else None
+        if src is not None and src.exists():
+            dest = local_nrfutil_home / "bin" / "nrfutil-device"
+            try:
+                dest.symlink_to(src)
+            except OSError:
+                shutil.copy2(str(src), str(dest))
+        else:
+            info("Installing nrfutil device (one-time)...")
+            subprocess.run([nrfutil, "install", "device"], env=env, check=True)
 
     info("Packaging firmware...")
     pkg_cmd = [
@@ -240,8 +254,9 @@ def flash(key_file=None):
         )
     except subprocess.CalledProcessError as e:
         error(
-            "No DFU-capable device found.\n"
-            "  Put the nRF52840 dongle in bootloader mode first:\n"
+            "'nrfutil device program' failed. See its error above.\n"
+            "  If it reports no DFU-capable device, put the dongle in\n"
+            "  bootloader mode first:\n"
             "    1. Unplug the dongle\n"
             "    2. Hold the reset button\n"
             "    3. Plug it in while holding the button\n"
