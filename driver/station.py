@@ -73,8 +73,22 @@ def _log_add(msg: str) -> None:
     _log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
 
+# Must match robot/main/include/robot_config.h. The failsafe byte doubles as
+# an opcode so commands fit the existing 4-byte payload.
+OPCODE_DRIVE    = 0
+OPCODE_SET_TRIM = 1
+TRIM_MAGIC      = 0x5A
+
+
 def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
     return f"{ml:02x}{mr:02x}{wb:02x}{fb:02x}\n".encode()
+
+
+def trim_packet(trim_l: int, trim_r: int) -> bytes:
+    """Encode a set-trim command. Trim is offset by 127 so it fits a byte."""
+    return _hex_packet(max(0, min(255, 127 + trim_l)),
+                       max(0, min(255, 127 + trim_r)),
+                       TRIM_MAGIC, OPCODE_SET_TRIM)
 
 
 # ─── Indicator buttons ────────────────────────────────────────────────────────
@@ -229,6 +243,27 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
         _gs["armed"] = not _gs["armed"]
         _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
+    def cb_save_trim(s_, a, u):
+        """Push trim to the robot, which stores it in NVS and applies it.
+
+        Refused while armed: the robot cannot tell a trim packet from a drive
+        packet being unsafe to act on, so the guard has to live here. Sent
+        several times because the link is one-way and lossy, and there is no
+        acknowledgement to wait for.
+        """
+        if _gs["armed"]:
+            _log_add("Disarm before saving trim")
+            return
+        if not link.ensure_connected():
+            _log_add("WARNING: trim not sent, serial not connected")
+            return
+        pkt = trim_packet(_trim["L"], _trim["R"])
+        sent = sum(1 for _ in range(5) if link.send(pkt))
+        if sent:
+            _log_add(f"Trim sent to robot: L={_trim['L']} R={_trim['R']}")
+        else:
+            _log_add("WARNING: trim send failed")
+
     def _sync_trim(side, val):
         val = max(-127, min(127, val))
         _trim[side] = val
@@ -339,6 +374,8 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
                                       min_clamped=True, max_clamped=True,
                                       width=55, step=0, on_enter=True,
                                       callback=cb_trim_R_inp)
+                dpg.add_button(label="Save trim to robot", tag="btn_save_trim",
+                               callback=cb_save_trim, width=200)
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("MULT", color=C_DIM[:3])
@@ -569,7 +606,8 @@ def main() -> None:
         motor_l, motor_r = drive.drive_bytes(
             DRIVE_MODES[_mode_idx]["mix"], axis_a, axis_b,
             mult_l=_mult["L"], mult_r=_mult["R"],
-            trim_l=_trim["L"], trim_r=_trim["R"],
+            # Trim is applied by the robot, from its own saved value. Applying
+            # it here as well would double it. See cb_save_trim.
             invert=_gs["drive_inverted"],
         )
 

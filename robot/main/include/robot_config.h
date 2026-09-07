@@ -11,8 +11,32 @@
  *   byte 0 = left motor   (0–255, center 127)
  *   byte 1 = right motor  (0–255, center 127)
  *   byte 2 = weapon       (127=safe, 160=idle fwd, 255=attack fwd, 95=idle rev)
- *   byte 3 = failsafe     (0=normal, >127=hard killswitch) */
+ *   byte 3 = failsafe     (0=normal, 1=set trim, >127=hard killswitch) */
 #define BATTLEBOT_PAYLOAD_LEN 4
+
+/* --------------------------------------------------------------------------
+ * Command opcodes
+ * --------------------------------------------------------------------------
+ * The failsafe byte doubles as a tiny opcode space so commands fit the
+ * existing 4-byte payload. Widening the payload would mean changing the ESB
+ * config on both radios and the dongle's parser, for one rarely used message.
+ *
+ * PACKET_OPCODE_SET_TRIM reinterprets the packet as:
+ *   byte 0 = left trim  + 127
+ *   byte 1 = right trim + 127
+ *   byte 2 = TRIM_COMMAND_MAGIC
+ *
+ * The magic byte exists because a corrupted drive packet must not be able to
+ * silently retrim the robot mid-match. The link has CRC, but the cost of one
+ * constant is lower than the cost of being wrong about that.
+ *
+ * The station only sends this while disarmed. The robot cannot verify that,
+ * since arm state is not on the wire, so it treats a trim packet as "no drive
+ * command" and leaves the motors where they were rather than steering from
+ * bytes that are not throttles. */
+#define PACKET_OPCODE_DRIVE     0
+#define PACKET_OPCODE_SET_TRIM  1
+#define TRIM_COMMAND_MAGIC      0x5A
 
 /* --------------------------------------------------------------------------
  * Link loss

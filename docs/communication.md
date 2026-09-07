@@ -40,14 +40,34 @@ Arcade drive: mixing happens in the station before serialisation.
 
 The driver station sends only three values in practice: `0`, `64`, `255`. The byte encodes *desired mode*, not a throttle percentage.
 
-**Byte 3 — Killswitch**
+**Byte 3 — Killswitch and opcode**
 
 | Value | Meaning |
 |---|---|
-| 0 | Normal operation |
+| 0 | Normal drive packet |
+| 1 | Set trim (see below) |
 | 255 | Deep sleep command |
 
 The firmware checks `failsafe_raw > 127`, so any value ≥ 128 triggers the killswitch. The threshold provides robustness against single-bit errors.
+
+Values below 128 that are not `0` are opcodes. This keeps commands inside the existing 4-byte payload; widening it would mean changing the ESB configuration on both radios and the dongle's parser for the sake of one rarely used message.
+
+**Set trim (opcode 1)**
+
+Motor trim is stored on the robot in NVS, not on the driver laptop, so it survives swapping laptops mid-event. Trim describes the robot's motor and ESC mismatch, which is a property of the robot.
+
+| Byte | Meaning |
+|---|---|
+| 0 | left trim + 127 |
+| 1 | right trim + 127 |
+| 2 | `0x5A` magic |
+| 3 | `1` |
+
+The magic byte in byte 2 means a corrupted drive packet cannot silently retrim the robot mid-match. On receipt the robot applies the trim, writes it to NVS, and skips the packet for drive purposes, since bytes 0 and 1 are trim values rather than throttles.
+
+The link is one-way, so there is no acknowledgement and no way to read the stored trim back. The station therefore sends the command five times, and a freshly started station shows `0` until the operator adjusts it, regardless of what the robot has saved. The robot logs its trim at boot.
+
+The station refuses to send this while armed. The robot cannot check that itself, since arm state is not on the wire.
 
 ### Encoding Notes
 
