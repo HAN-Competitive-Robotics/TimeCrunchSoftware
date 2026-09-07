@@ -745,6 +745,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="HCR Mission Control")
     parser.add_argument("--calibrate", action="store_true",
                         help="Show gamepad axis/button numbers")
+    parser.add_argument("--debug", action="store_true",
+                        help="Print every TX packet. Costly: at rate_hz this "
+                             "can starve the UI thread on Windows.")
     args = parser.parse_args()
 
     if args.calibrate:
@@ -870,9 +873,10 @@ def main() -> None:
                 if was_searching:
                     _log_add(f"Serial connected: {link.port_name}")
                 if link.send(pkt):
-                    print(f"[TX] {pkt.strip().decode()}  "
-                          f"motors=({motor_l},{motor_r}) "
-                          f"weapon={weapon_byte} fs={failsafe_byte}")
+                    if args.debug:
+                        print(f"[TX] {pkt.strip().decode()}  "
+                              f"motors=({motor_l},{motor_r}) "
+                              f"weapon={weapon_byte} fs={failsafe_byte}")
                 else:
                     _log_add("Serial write failed")
             last_send = now

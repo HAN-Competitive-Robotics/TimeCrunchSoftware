@@ -10,18 +10,26 @@ import wsl_common
 def is_esp32(port):
     desc = (port.description or "").lower()
     hwid = (port.hwid or "").lower()
+    # "espressif" covers boards that expose a native/bridged USB CDC port
+    # (/dev/ttyACM*) instead of the usual CP210x or CH340 UART bridge. It must
+    # be matched here, before the ttyACM fallback in find_ports() claims the
+    # port for the dongle.
     return any(
         k in desc or k in hwid
-        for k in ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial"]
+        for k in ["cp210", "ch340", "ch341", "ftdi", "usb-uart", "usb serial", "espressif"]
     )
 
 
 def is_dongle(port):
     desc = (port.description or "").lower()
     hwid = (port.hwid or "").lower()
+    # Windows names the flashed dongle generically as "USB Serial Device", which
+    # collides with the "usb serial" ESP32 keyword, so match the vendor IDs too:
+    # 1915 is Nordic (bootloader), 2fe3 is the Zephyr Project (running firmware).
     return any(
         k in desc or k in hwid
-        for k in ["nordic", "segger", "j-link", "usb cdc", "nrf52", "nrf52840"]
+        for k in ["nordic", "segger", "j-link", "usb cdc", "nrf52", "nrf52840",
+                  "vid:pid=1915", "vid:pid=2fe3"]
     )
 
 
@@ -30,11 +38,13 @@ def find_ports():
     dongle = []
     other = []
 
+    # Dongle first: its match is vendor-ID specific, while the ESP32 keywords
+    # include the generic "usb serial" that Windows applies to the dongle too.
     for p in serial.tools.list_ports.comports():
-        if is_esp32(p):
-            esp32.append(p)
-        elif is_dongle(p):
+        if is_dongle(p):
             dongle.append(p)
+        elif is_esp32(p):
+            esp32.append(p)
         else:
             other.append(p)
 
