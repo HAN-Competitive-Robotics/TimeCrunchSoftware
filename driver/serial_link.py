@@ -45,17 +45,7 @@ class SerialLink:
         if not port:
             return False
         try:
-            # write_timeout matters as much as timeout: it defaults to None,
-            # which makes write() block forever if the dongle stops draining
-            # its USB CDC buffer. That hangs the caller's render loop with no
-            # way out. With a timeout it raises SerialTimeoutException, which
-            # is a SerialException, so send() below drops the link and retries.
-            self.ser = serial.Serial(
-                port,
-                self.cfg["serial"]["baudrate"],
-                timeout=0.1,
-                write_timeout=0.2,
-            )
+            self.ser = serial.Serial(port, self.cfg["serial"]["baudrate"], timeout=0.1)
             self.port_name = port
             self.state = "connected"
             self.last_ok = time.time()
@@ -82,11 +72,6 @@ class SerialLink:
             return False
         try:
             self.ser.write(data)
-            # The dongle echoes every packet back and nothing here consumes it.
-            # Left alone the input buffer fills, which backs up the dongle's USB
-            # TX, which stops it draining our writes, which blocks write().
-            if self.ser.in_waiting:
-                self.ser.reset_input_buffer()
             self.packet_count += 1
             now = time.time()
             self.last_ok = now
