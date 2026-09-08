@@ -2,7 +2,7 @@
 """HCR Mission Control — Dear PyGui driver station."""
 from __future__ import annotations
 
-import os, sys, json, time, argparse
+import os, sys, json, time, argparse, hashlib, getpass
 from collections import deque
 from pathlib import Path
 
@@ -59,9 +59,12 @@ _gs: dict = {
     "weapon_state":   "safe",
     "armed":          False,
     "killswitch":     False,
+    "weapon_locked":  True,     # always locked at startup, never persisted
 }
 
 _mode_idx: int = 0                # index into drive_modes.DRIVE_MODES
+_weapon_pw_hash: str = ""         # from config.json, set in main()
+_relock_on_disarm: bool = True
 _IND: dict[str, int] = {}
 _trim: dict = {"L": 0, "R": 0}    # raw offset −127…+127
 _mult: dict = {"L": 1.0, "R": 1.0}  # output multiplier 0.0…5.0
@@ -86,6 +89,25 @@ def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
 
 WEAPON_BYTES = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}
 NEUTRAL = 127
+
+
+def password_matches(entered: str, expected_sha256: str) -> bool:
+    """Constant-time-ish comparison of the entered password against the stored
+    hash. An empty stored hash means no password is configured, in which case
+    the deliberate click-through is the whole interlock."""
+    if not expected_sha256:
+        return True
+    return hashlib.sha256(entered.encode()).hexdigest() == expected_sha256
+
+
+def weapon_permitted(armed: bool, killswitch_latched: bool, weapon_locked: bool) -> bool:
+    """The weapon may only spin when armed, not killed, and explicitly unlocked.
+
+    The lock exists because the weapon is one keypress away at all times. It
+    stops a bumped gamepad button or a mistaken Space from spinning a disc; it
+    is not access control, and the config file says so.
+    """
+    return armed and not killswitch_latched and not weapon_locked
 
 
 def outputs_inhibited(armed: bool, killswitch_latched: bool) -> bool:
@@ -243,6 +265,31 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         global _mode_idx
         _mode_idx = index_of(val)
         _apply_mode()
+
+    def cb_lock_click(s_, a, u):
+        """Locking never needs a password. Unlocking always does."""
+        if not _gs["weapon_locked"]:
+            _gs["weapon_locked"] = True
+            _gs["weapon_state"] = "safe"
+            _log_add("Weapon LOCKED")
+            return
+        dpg.set_value("inp_wpn_pw", "")
+        dpg.set_value("txt_wpn_pw_err", "")
+        dpg.configure_item("wpn_pw_modal", show=True)
+
+    def cb_lock_confirm(s_, a, u):
+        entered = dpg.get_value("inp_wpn_pw")
+        if not password_matches(entered, _weapon_pw_hash):
+            dpg.set_value("txt_wpn_pw_err", "Wrong password")
+            dpg.set_value("inp_wpn_pw", "")
+            _log_add("Weapon unlock refused: wrong password")
+            return
+        _gs["weapon_locked"] = False
+        dpg.configure_item("wpn_pw_modal", show=False)
+        _log_add("Weapon UNLOCKED")
+
+    def cb_lock_cancel(s_, a, u):
+        dpg.configure_item("wpn_pw_modal", show=False)
 
     def cb_arm_click(s, a, u):
         _gs["armed"] = not _gs["armed"]
@@ -432,11 +479,18 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                         with dpg.table_cell():
                             dpg.add_button(label="KILLSWITCH OFF", tag="ind_kill",
                                            height=34, width=-1)
+                    with dpg.table_row():
+                        with dpg.table_cell():
+                            dpg.add_button(label="WEAPON LOCKED", tag="ind_wpn_lock",
+                                           height=34, width=-1, callback=cb_lock_click)
+                        with dpg.table_cell():
+                            dpg.add_text("")
 
                 _set_ind("ind_armed",  "DISARMED",    "danger")
                 _set_ind("ind_weapon", "WEAPON SAFE", "panel")
                 _set_ind("ind_drive",  "DRIVE NORMAL",   "panel")
                 _set_ind("ind_kill",   "KILLSWITCH OFF", "panel")
+                _set_ind("ind_wpn_lock", "WEAPON LOCKED", "danger")
 
                 with dpg.tooltip("ind_armed"):
                     dpg.add_text("Click (or press arm key) to toggle arm state.")
@@ -447,6 +501,13 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                     dpg.add_text("ATTACK = full speed fwd     (byte 255)")
                     dpg.add_text("REV    = spinning low rev   (byte 95)")
                     dpg.add_text("Atk/Rev key: hold in IDLE=attack, hold in SAFE=reverse spin.")
+                with dpg.tooltip("ind_wpn_lock"):
+                    dpg.add_text("Click to unlock the weapon (asks for a password).")
+                    dpg.add_text("While LOCKED the weapon is forced safe no matter")
+                    dpg.add_text("what the gamepad or keyboard does.")
+                    dpg.add_text("Re-locks automatically on disarm and on killswitch.")
+                    dpg.add_text("This guards against accidental activation. It is not")
+                    dpg.add_text("access control.")
                 with dpg.tooltip("ind_kill"):
                     dpg.add_text("Sends failsafe byte=255.")
                     dpg.add_text("Robot enters deep sleep — power cycle to recover.")
@@ -461,6 +522,20 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
     # Without this the HUD is an ordinary floating window: it renders inset
     # from the top-left with dead space around it and clips on the right.
+    with dpg.window(tag="wpn_pw_modal", label="Unlock weapon", modal=True,
+                    show=False, no_resize=True, width=340, height=170,
+                    pos=[260, 200]):
+        dpg.add_text("Enter the weapon password to unlock.")
+        dpg.add_text("The weapon stays safe until you do.", color=C_DIM[:3])
+        dpg.add_spacer(height=6)
+        dpg.add_input_text(tag="inp_wpn_pw", password=True, width=-1,
+                           on_enter=True, callback=cb_lock_confirm)
+        dpg.add_text("", tag="txt_wpn_pw_err", color=C_DANGER[:3])
+        dpg.add_spacer(height=6)
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Unlock", width=120, callback=cb_lock_confirm)
+            dpg.add_button(label="Cancel", width=120, callback=cb_lock_cancel)
+
     dpg.set_primary_window("primary", True)
 
 
@@ -491,6 +566,18 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
 
     _update_bar("L", ml)
     _update_bar("R", mr)
+
+    # Re-lock whenever the weapon may not run anyway, so unlocking is always a
+    # deliberate act rather than something left over from earlier in the match.
+    if _relock_on_disarm and not _gs["armed"]:
+        _gs["weapon_locked"] = True
+    if _gs["killswitch"]:
+        _gs["weapon_locked"] = True
+
+    locked = _gs["weapon_locked"]
+    _set_ind("ind_wpn_lock",
+             "WEAPON LOCKED" if locked else "WEAPON UNLOCKED",
+             "danger" if locked else "warn")
 
     armed = _gs["armed"]
     ws    = _gs["weapon_state"]
@@ -545,6 +632,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="HCR Mission Control")
     parser.add_argument("--calibrate", action="store_true",
                         help="Show gamepad axis/button numbers")
+    parser.add_argument("--set-weapon-password", action="store_true",
+                        help="Set the weapon unlock password and exit")
     parser.add_argument("--debug", action="store_true",
                         help="Print every TX packet. Costly: at rate_hz this "
                              "can starve the UI thread on Windows.")
@@ -554,8 +643,30 @@ def main() -> None:
         calibrate()
         return
 
+    if args.set_weapon_password:
+        cfg = json.loads(CONFIG_PATH.read_text())
+        pw1 = getpass.getpass("New weapon password (blank to disable): ")
+        pw2 = getpass.getpass("Repeat: ")
+        if pw1 != pw2:
+            print("Passwords did not match. Nothing changed.")
+            return
+        cfg.setdefault("safety", {})["weapon_password_sha256"] = (
+            hashlib.sha256(pw1.encode()).hexdigest() if pw1 else "")
+        CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
+        print("Password disabled." if not pw1 else "Password updated.")
+        print("Note: this is an interlock against accidental activation, not")
+        print("access control. Anyone who can edit config.json can replace it.")
+        return
+
     cfg  = json.loads(CONFIG_PATH.read_text())
     link = SerialLink(cfg)
+
+    global _weapon_pw_hash, _relock_on_disarm
+    _safety = cfg.get("safety", {})
+    _weapon_pw_hash   = _safety.get("weapon_password_sha256", "")
+    _relock_on_disarm = _safety.get("relock_on_disarm", True)
+    if not _weapon_pw_hash:
+        _log_add("No weapon password set - unlock needs only a confirmation")
 
     pygame.init()
 
@@ -627,6 +738,9 @@ def main() -> None:
 
         if outputs_inhibited(_gs["armed"], _gs["killswitch"]):
             motor_l = motor_r = NEUTRAL
+            _gs["weapon_state"] = "safe"
+
+        if not weapon_permitted(_gs["armed"], _gs["killswitch"], _gs["weapon_locked"]):
             _gs["weapon_state"] = "safe"
         else:
             if wpn_btn and not prev_wpn:

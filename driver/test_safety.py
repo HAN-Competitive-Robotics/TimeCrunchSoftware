@@ -26,7 +26,8 @@ import drive
 import re
 _src = Path(__file__).resolve().parent.joinpath("station.py").read_text()
 _ns: dict = {}
-for _fn in ("outputs_inhibited", "failsafe_byte", "_hex_packet", "trim_packet"):
+for _fn in ("outputs_inhibited", "failsafe_byte", "weapon_permitted",
+            "password_matches", "_hex_packet", "trim_packet"):
     _m = re.search(rf"^def {_fn}\(.*?(?=\n\n\n|\n# ─|\Z)", _src, re.S | re.M)
     exec(_m.group(0), _ns)
 _ns["OPCODE_SET_TRIM"] = 1
@@ -35,7 +36,11 @@ exec(re.search(r"^WEAPON_BYTES = .*$", _src, re.M).group(0), _ns)
 exec(re.search(r"^NEUTRAL = .*$", _src, re.M).group(0), _ns)
 exec(re.search(r"^def trim_packet\(.*?(?=\n\n\n)", _src, re.S | re.M).group(0), _ns)
 
+import hashlib
+_ns["hashlib"] = hashlib
 outputs_inhibited = _ns["outputs_inhibited"]
+weapon_permitted = _ns["weapon_permitted"]
+password_matches = _ns["password_matches"]
 failsafe_byte = _ns["failsafe_byte"]
 WEAPON_BYTES = _ns["WEAPON_BYTES"]
 NEUTRAL = _ns["NEUTRAL"]
@@ -136,6 +141,25 @@ for tl, tr in [(0, 0), (127, -127), (-20, 20)]:
           f"accidental killswitch)", fb == 1)
 check("a killswitch packet is unambiguous",
       int(_ns["_hex_packet"](127, 127, 127, 255).strip().decode()[6:8], 16) == 255)
+
+hdr("9. Weapon lock: all eight armed/kill/locked combinations")
+for armed, kill, locked in itertools.product([False, True], repeat=3):
+    allowed = weapon_permitted(armed, kill, locked)
+    expect = armed and not kill and not locked
+    check(f"armed={armed!s:<5} kill={kill!s:<5} locked={locked!s:<5} -> "
+          f"{'weapon may spin' if allowed else 'weapon forced safe':<19}",
+          allowed == expect)
+check("the only permitting case is armed + not killed + unlocked",
+      weapon_permitted(True, False, False))
+
+hdr("10. Weapon password check")
+_h = hashlib.sha256(b"correct horse").hexdigest()
+check("correct password accepted",        password_matches("correct horse", _h))
+check("wrong password rejected",          not password_matches("wrong", _h))
+check("empty entry rejected",             not password_matches("", _h))
+check("case sensitive",                   not password_matches("Correct Horse", _h))
+check("no password configured -> any entry passes (click-through only)",
+      password_matches("anything", ""))
 
 print()
 print("=" * 70)
