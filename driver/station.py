@@ -35,6 +35,8 @@ BAR_H   = 200
 BAR_CY  = BAR_H // 2
 BAR_PAD = (LEFT_W - BAR_W * 2 - 10) // 2
 
+PW_MODAL_W = 280      # password modal content width
+
 LOG_N  = 8
 LOG_H  = 120
 
@@ -274,8 +276,16 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             _log_add("Weapon LOCKED")
             return
         dpg.set_value("inp_wpn_pw", "")
-        dpg.set_value("txt_wpn_pw_err", "")
-        dpg.configure_item("wpn_pw_modal", show=True)
+        dpg.set_value("txt_wpn_pw_err", " ")
+        # Centre on the viewport. The modal is autosized so its exact height is
+        # not known until it renders; half the content width is close enough
+        # and beats a fixed position that drifts when the window is resized.
+        vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
+        dpg.configure_item("wpn_pw_modal",
+                           pos=[max(0, vw // 2 - PW_MODAL_W // 2 - 20),
+                                max(0, vh // 2 - 90)],
+                           show=True)
+        dpg.focus_item("inp_wpn_pw")
 
     def cb_lock_confirm(s_, a, u):
         entered = dpg.get_value("inp_wpn_pw")
@@ -522,19 +532,26 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
     # Without this the HUD is an ordinary floating window: it renders inset
     # from the top-left with dead space around it and clips on the right.
+    # autosize rather than a fixed height: a hardcoded height that is even
+    # slightly too small makes DPG add a scrollbar and clip the buttons, which
+    # is what the first version of this did. Letting it size to its content
+    # cannot get that wrong, and no_scrollbar makes it impossible anyway.
     with dpg.window(tag="wpn_pw_modal", label="Unlock weapon", modal=True,
-                    show=False, no_resize=True, width=340, height=170,
-                    pos=[260, 200]):
-        dpg.add_text("Enter the weapon password to unlock.")
-        dpg.add_text("The weapon stays safe until you do.", color=C_DIM[:3])
-        dpg.add_spacer(height=6)
-        dpg.add_input_text(tag="inp_wpn_pw", password=True, width=-1,
+                    show=False, no_resize=True, no_scrollbar=True,
+                    no_collapse=True, autosize=True):
+        dpg.add_text("Enter the weapon password.")
+        dpg.add_spacer(height=4)
+        dpg.add_input_text(tag="inp_wpn_pw", password=True, width=PW_MODAL_W,
                            on_enter=True, callback=cb_lock_confirm)
-        dpg.add_text("", tag="txt_wpn_pw_err", color=C_DANGER[:3])
-        dpg.add_spacer(height=6)
+        # Always occupies a line, so showing an error does not shift the
+        # buttons out from under the cursor.
+        dpg.add_text(" ", tag="txt_wpn_pw_err", color=C_DANGER[:3])
+        dpg.add_spacer(height=4)
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Unlock", width=120, callback=cb_lock_confirm)
-            dpg.add_button(label="Cancel", width=120, callback=cb_lock_cancel)
+            dpg.add_button(label="Unlock", width=PW_MODAL_W // 2 - 4,
+                           callback=cb_lock_confirm)
+            dpg.add_button(label="Cancel", width=PW_MODAL_W // 2 - 4,
+                           callback=cb_lock_cancel)
 
     dpg.set_primary_window("primary", True)
 
