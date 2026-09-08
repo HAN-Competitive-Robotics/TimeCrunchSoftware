@@ -1,5 +1,20 @@
 # Onboarding
 
+## Check your setup first
+
+Every version below is pinned, because each one has already broken something
+here by drifting. One command tells you whether this machine matches:
+
+```bash
+python scripts/check-toolchain.py
+```
+
+`FAIL` means a version that will produce different results from everyone
+else's machine. `warn` means a tool you simply do not have, which is fine if
+you are not building that part. The pins live in
+[`scripts/toolchain_versions.py`](../scripts/toolchain_versions.py) — change
+them there, not in this document.
+
 ## What You Need
 
 | Component | Tool |
