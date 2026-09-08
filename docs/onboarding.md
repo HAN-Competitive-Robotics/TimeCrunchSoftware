@@ -6,8 +6,8 @@
 |---|---|
 | Robot firmware (ESP32) | ESP-IDF v5.x |
 | Radio dongle (nRF52840) | nRF Connect SDK v2.7+ + west + nrfutil |
-| Ground station (Python) | Python 3.10+, pygame, pyserial |
-| Flashing | Python 3.10+ (flash scripts) |
+| Ground station (Python) | Python 3.12, pygame, pyserial, dearpygui |
+| Flashing | Python 3.12 (flash scripts) |
 
 ---
 
@@ -15,21 +15,30 @@
 
 ### macOS
 ```bash
-brew install python3
-pip3 install pygame pyserial
+brew install python@3.12
+pip3 install -r driver/requirements.txt
 ```
 
 ### Linux (Ubuntu/Debian)
 ```bash
 sudo apt install python3 python3-pip
-pip3 install pygame pyserial
+pip3 install -r driver/requirements.txt
 ```
 
 ### Windows
-Download Python 3.10+ from python.org. Check **"Add Python to PATH"** during install, then:
+Download **Python 3.12, 64-bit** from python.org. Check **"Add Python to PATH"** during
+install, then:
 ```cmd
-pip install pygame pyserial
+py -3.12 -m pip install -r driver\requirements.txt
 ```
+
+Use 3.12 specifically, not "3.10 or newer". pygame 2.6.1 publishes no Windows
+wheel above cp313, so on 3.14 pip falls back to building from source and dies
+in the MSVC compiler. Use `py -3.12` rather than `python`, so packages land in
+the interpreter you actually run.
+
+Installing `pygame` and `pyserial` by name is not enough: `station.py` also
+imports `dearpygui`, so install from the requirements file.
 
 ---
 

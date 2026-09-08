@@ -26,10 +26,13 @@ One-way radio control system for a battlebot using Nordic ESB (Enhanced ShockBur
 
 ### All platforms
 
-- Python 3.10+ with `pyserial` and `pygame`:
+- **Python 3.12** with the ground station's dependencies:
   ```bash
-  pip3 install pyserial pygame
+  pip3 install -r driver/requirements.txt
   ```
+  Install from the requirements file rather than naming packages: `station.py`
+  imports `dearpygui` as well. On Windows use `py -3.12 -m pip`, and 3.12
+  specifically, since pygame ships no Windows wheel above cp313.
 
 ### ESP32 receiver (`robot/`)
 
