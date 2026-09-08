@@ -125,8 +125,9 @@ just a choice, it is part of compliance: 5S fails both limits.
 
 ## Still to verify
 
-- **Count the teeth on both pulleys.** The 2:1 ratio is the one input never
-  measured directly. It is a linear multiplier on both results.
+- **Pulley ratio: confirmed 2:1 by the builder (2026-09-08).** It is a linear
+  multiplier on both results, so it was the highest-risk input; with it
+  confirmed, the calculation stands on measured/known figures.
 - **Check the material density.** 1081 g ÷ 158,873 mm³ = 6.80 g/cm³, which is
   not a common single material. Plausible for a mixed assembly, but if any
   component is on SolidWorks' default the mass and the energy are wrong.
@@ -140,18 +141,12 @@ because the calculation above shows 100% is inside both limits with margin, so
 holding it lower only costs weapon performance.
 
 The ceiling is **not** what keeps this weapon legal — the hardware and the
-physics do that — so at 100% there is no longer any firmware margin standing
-between a wrong input and an illegal weapon. Two things this now rests on
-entirely:
-
-- **The 2:1 pulley ratio in the inputs table.** It is the one figure never
-  measured directly (see "Still to verify"), and it is a linear multiplier on
-  tip speed and squares into energy. If it is actually 1:1, full throttle is
-  435 mph and ~6.5 kJ — roughly 4x over. Count the teeth before running 100%.
-- **No RPM readback.** With no Hall sensor fitted there is no way to confirm
-  the real spin-up speed on the bench, so the theoretical table below is the
-  only evidence you have. The wireless bench test commands a percentage; it
-  does not measure the resulting rpm.
+physics do that — so at 100% there is no firmware margin standing between a
+wrong input and an illegal weapon. The pulley ratio, the highest-risk input, is
+confirmed 2:1, so the calculation rests on measured/known figures. The one
+remaining gap is that with no Hall sensor fitted there is **no RPM readback**:
+the theoretical table below is the only evidence of the real speed, and the
+wireless bench test commands a percentage without measuring the resulting rpm.
 
 Full throttle is also the highest current draw, hardest at spin-up. The
 QUICRUN WP 8BL150 G2 is rated 150 A continuous / 950 A peak.
