@@ -461,6 +461,10 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
                     for i in range(LOG_N):
                         dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3])
 
+    # Without this the HUD is an ordinary floating window: it renders inset
+    # from the top-left with dead space around it and clips on the right.
+    dpg.set_primary_window("primary", True)
+
     return cb_cycle_mode
 
 
