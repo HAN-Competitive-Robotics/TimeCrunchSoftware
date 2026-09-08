@@ -23,6 +23,7 @@
 #include "driver/mcpwm_prelude.h"
 #include "driver/uart.h"
 #include "esp_err.h"
+#include "esp_timer.h"
 
 /* ---- hardware ------------------------------------------------------------ */
 #define WEAPON_GPIO       21
@@ -31,6 +32,27 @@
 #define PWM_RESOLUTION_HZ 1000000   /* 1 MHz → 1 tick = 1 µs               */
 #define PWM_PERIOD_TICKS  20000     /* 20 ms period → 50 Hz                 */
 #define PWM_NEUTRAL       1500      /* 1500 µs  ESC neutral / stopped      */
+
+/* --------------------------------------------------------------------------
+ * Deadman timeout (MODE_TEST)
+ * --------------------------------------------------------------------------
+ * This firmware spins a weapon disc from a serial prompt. If the USB cable is
+ * pulled, the terminal is closed, or the laptop sleeps, the throttle would
+ * otherwise stay exactly where it was and the disc would keep spinning with
+ * nobody able to stop it.
+ *
+ * The ESP32 cannot detect the disconnection itself: UART0 sits behind the
+ * CP2102 bridge, whose DTR/RTS lines are wired to EN/BOOT for auto-reset and
+ * are not readable from application code. So instead of detecting the cable,
+ * require proof that somebody is still there.
+ *
+ * While the throttle is non-zero, any keypress refreshes the timer. Silence
+ * for this long ramps back to neutral. A pulled cable, a closed terminal and
+ * an unattended bench all look the same from here, which is the point.
+ */
+#define DEADMAN_TIMEOUT_MS   3000
+#define DEADMAN_RAMP_MS       500   /* ease to neutral rather than stepping  */
+#define DEADMAN_RAMP_STEPS     20
 #define PWM_FULL_FWD      2000      /* 2000 µs  full throttle forward      */
 #define PWM_FULL_BRK      1000      /* 1000 µs  full brake                 */
 
@@ -199,8 +221,32 @@ void app_main(void)
     uint8_t c   = 0;
     int     cur = 0;
 
+    int64_t last_input_us = esp_timer_get_time();
+
     while (1) {
-        if (uart_read_bytes(UART_NUM_0, &c, 1, portMAX_DELAY) != 1) continue;
+        /* Poll rather than block forever, so the deadman can expire while no
+         * one is typing. */
+        int got = uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(100));
+
+        if (got != 1) {
+            if (cur != 0 &&
+                (esp_timer_get_time() - last_input_us) > (int64_t)DEADMAN_TIMEOUT_MS * 1000) {
+                printf("\n*** DEADMAN: no input for %d ms - ramping to neutral ***\n",
+                       DEADMAN_TIMEOUT_MS);
+                for (int i = DEADMAN_RAMP_STEPS; i >= 0; i--) {
+                    pwm_set_throttle(cur * i / DEADMAN_RAMP_STEPS);
+                    vTaskDelay(pdMS_TO_TICKS(DEADMAN_RAMP_MS / DEADMAN_RAMP_STEPS));
+                }
+                pwm_set_throttle(0);
+                cur = 0;
+                idx = 0;
+                printf("Throttle: 0%% (neutral). Type a value to resume.\n");
+                last_input_us = esp_timer_get_time();
+            }
+            continue;
+        }
+
+        last_input_us = esp_timer_get_time();
 
         if (c == '\r' || c == '\n') {
             if (idx == 0) continue;

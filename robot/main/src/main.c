@@ -33,7 +33,9 @@ typedef struct {
 static QueueHandle_t  state_queue;
 static TaskHandle_t   h_radio   = NULL;
 static TaskHandle_t   h_weapon  = NULL;
+#if THERMAL_PROTECTION_ENABLED
 static TaskHandle_t   h_thermal = NULL;
+#endif
 
 /* Center of the 0–255 packet range, per the protocol spec. */
 #define PACKET_CENTER 127

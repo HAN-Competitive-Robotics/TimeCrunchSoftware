@@ -1,26 +1,67 @@
 {
-  "_comment": "Serial, packet, and UI settings. Controls (keybinds/gamepad) are stored in profiles.json and edited via the in-app keybind editor (F2).",
+  "_comment": "Serial, packet, and UI settings. Controls are defined in code in drive_modes.py and are not editable at runtime.",
   "serial": {
     "port": "auto",
     "baudrate": 115200,
     "rate_hz": 50
   },
   "packet": {
-    "order": ["motor_left", "motor_right", "weapon", "failsafe"],
-    "range": [0, 255],
+    "order": [
+      "motor_left",
+      "motor_right",
+      "weapon",
+      "failsafe"
+    ],
+    "range": [
+      0,
+      255
+    ],
     "center": 127
   },
   "ui": {
     "width": 900,
     "height": 600,
     "theme": {
-      "bg": [30, 30, 35],
-      "panel": [45, 45, 55],
-      "text": [220, 220, 220],
-      "accent": [0, 200, 255],
-      "warning": [255, 180, 0],
-      "danger": [255, 60, 60],
-      "good": [60, 255, 120]
+      "bg": [
+        30,
+        30,
+        35
+      ],
+      "panel": [
+        45,
+        45,
+        55
+      ],
+      "text": [
+        220,
+        220,
+        220
+      ],
+      "accent": [
+        0,
+        200,
+        255
+      ],
+      "warning": [
+        255,
+        180,
+        0
+      ],
+      "danger": [
+        255,
+        60,
+        60
+      ],
+      "good": [
+        60,
+        255,
+        120
+      ]
     }
+  },
+  "safety": {
+    "_comment": "weapon_password_sha256 gates the weapon unlock button. This is an interlock against ACCIDENTAL weapon activation, not access control: anyone who can edit this file can replace the hash, and anyone who can edit station.py can remove the check entirely. Set it with 'python station.py --set-weapon-password'. An empty string means the unlock button still needs a deliberate click-through, just no password.",
+    "weapon_password_sha256": "95c0188b8f403cb53d614b8717344a1bf46fe1167067dffbb4d2a828a500f229",
+    "relock_on_disarm": true
   }
 }

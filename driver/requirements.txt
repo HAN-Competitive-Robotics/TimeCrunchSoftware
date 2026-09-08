@@ -1,3 +1,15 @@
-pyserial>=3.5
-pygame>=2.5.0
-dearpygui>=1.11.0
+# Exact pins, not floors.
+#
+# ">=" ranges caused three separate failures on this project: pygame resolved
+# to a version with no Windows wheel for the installed Python and fell back to
+# a source build that died in the MSVC compiler, and dearpygui floats across a
+# major version whose renamed key constants keymap.py resolves with hasattr, so
+# a mismatch breaks keybinds silently rather than raising.
+#
+# These are the versions the station is tested against. Verify with:
+#     python scripts/check-toolchain.py
+#
+# Bumping one is fine. Bumping it without running the station afterwards is not.
+pyserial==3.5
+pygame==2.6.1
+dearpygui==2.3.1

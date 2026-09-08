@@ -10,6 +10,41 @@
 // This lets the weapon spin even before KP/KI are tuned. Set to 0 to disable.
 #define WEAPON_FF          50.0f   // 50% baseline  adjust based on your ESC/motor
 
+// ---------------------------------------------------------------------------
+// Hard output ceiling
+// ---------------------------------------------------------------------------
+// Absolute maximum throttle percentage the weapon may ever be commanded at,
+// applied last, after every other term, in both open and closed loop. Nothing
+// downstream of this can raise it: not a tuned KP, not integrator windup, not
+// a feedback fault.
+//
+// READ THIS BEFORE TRUSTING IT FOR A KINETIC ENERGY LIMIT.
+//
+// A throttle percentage is not an energy measurement. Kinetic energy is
+// (1/2) * I * omega^2, so it scales with the SQUARE of rotor speed, and the
+// relationship between throttle percentage and steady-state RPM is not linear
+// and depends on the ESC, the battery state of charge, and the rotor.
+//
+// This ceiling is a guard, not a guarantee. To use it for rules compliance:
+// spin up at this setting on a charged pack, measure actual RPM, compute the
+// energy from the rotor's real moment of inertia, and lower the number until
+// the measured figure is inside the limit with margin. Then re-check on a
+// fresh pack, because a fully charged battery spins faster at the same
+// throttle percentage.
+#define WEAPON_MAX_OUTPUT_PCT   60.0f
+
+// ---------------------------------------------------------------------------
+// Open-loop fallback levels
+// ---------------------------------------------------------------------------
+// Used when the Hall sensor is absent or has faulted, so there is no RPM to
+// close a loop against. Without these the open-loop path emitted WEAPON_FF for
+// every command, making idle and attack indistinguishable.
+//
+// Both are clamped by WEAPON_MAX_OUTPUT_PCT, so raising them cannot breach the
+// ceiling above.
+#define WEAPON_OL_IDLE_PCT      30.0f
+#define WEAPON_OL_ATTACK_PCT    50.0f
+
 // Closed-loop gains. Both zero ships the historical open-loop behaviour.
 //
 // Tune with the step-response procedure in docs/firmware/weapon-tuning.md.

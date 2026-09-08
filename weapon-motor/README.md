@@ -57,6 +57,28 @@ Throttle:  50%  (1750 µs)
 Throttle: 100%  (2000 µs)   ← full speed
 ```
 
+## Deadman timeout (MODE_TEST only)
+
+While the throttle is non-zero, any keypress resets a 3 second timer. If
+nothing arrives for 3 seconds the firmware ramps to neutral over 500 ms and
+prints:
+
+```
+*** DEADMAN: no input for 3000 ms - ramping to neutral ***
+```
+
+This exists because the ESP32 **cannot** detect that USB was unplugged. UART0
+sits behind the CP2102 bridge, whose DTR/RTS lines are wired to EN/BOOT for
+auto-reset and are not readable from application code. A pulled cable, a
+closed terminal, and an unattended bench all look identical from the
+firmware's side, so rather than detect the cable it requires proof that
+somebody is still present.
+
+Tap a key every couple of seconds to hold a speed. Adjust `DEADMAN_TIMEOUT_MS`
+at the top of `main/main.c` if 3 seconds proves awkward.
+
+Calibration mode has no deadman: the motor does not spin during calibration.
+
 ## Flashing
 
 ```bash

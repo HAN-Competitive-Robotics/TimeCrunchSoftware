@@ -1,13 +1,28 @@
 # Onboarding
 
+## Check your setup first
+
+Every version below is pinned, because each one has already broken something
+here by drifting. One command tells you whether this machine matches:
+
+```bash
+python scripts/check-toolchain.py
+```
+
+`FAIL` means a version that will produce different results from everyone
+else's machine. `warn` means a tool you simply do not have, which is fine if
+you are not building that part. The pins live in
+[`scripts/toolchain_versions.py`](../scripts/toolchain_versions.py) — change
+them there, not in this document.
+
 ## What You Need
 
 | Component | Tool |
 |---|---|
 | Robot firmware (ESP32) | ESP-IDF v5.x |
 | Radio dongle (nRF52840) | nRF Connect SDK v2.7+ + west + nrfutil |
-| Ground station (Python) | Python 3.10+, pygame, pyserial |
-| Flashing | Python 3.10+ (flash scripts) |
+| Ground station (Python) | Python 3.12, pygame, pyserial, dearpygui |
+| Flashing | Python 3.12 (flash scripts) |
 
 ---
 
@@ -15,21 +30,30 @@
 
 ### macOS
 ```bash
-brew install python3
-pip3 install pygame pyserial
+brew install python@3.12
+pip3 install -r driver/requirements.txt
 ```
 
 ### Linux (Ubuntu/Debian)
 ```bash
 sudo apt install python3 python3-pip
-pip3 install pygame pyserial
+pip3 install -r driver/requirements.txt
 ```
 
 ### Windows
-Download Python 3.10+ from python.org. Check **"Add Python to PATH"** during install, then:
+Download **Python 3.12, 64-bit** from python.org. Check **"Add Python to PATH"** during
+install, then:
 ```cmd
-pip install pygame pyserial
+py -3.12 -m pip install -r driver\requirements.txt
 ```
+
+Use 3.12 specifically, not "3.10 or newer". pygame 2.6.1 publishes no Windows
+wheel above cp313, so on 3.14 pip falls back to building from source and dies
+in the MSVC compiler. Use `py -3.12` rather than `python`, so packages land in
+the interpreter you actually run.
+
+Installing `pygame` and `pyserial` by name is not enough: `station.py` also
+imports `dearpygui`, so install from the requirements file.
 
 ---
 
@@ -47,7 +71,7 @@ sudo apt install git cmake ninja-build python3 python3-pip libffi-dev libssl-dev
 
 # Clone and install
 mkdir -p ~/esp && cd ~/esp
-git clone --recursive https://github.com/espressif/esp-idf.git
+git clone -b v5.4.4 --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf
 ./install.sh esp32        # downloads ~1.5 GB toolchain
 
@@ -64,7 +88,26 @@ source ~/esp/esp-idf/export.sh
 idf.py --version    # ESP-IDF v5.x.x
 ```
 
-This project requires **ESP-IDF v5.x**. v4.x will fail — `mcpwm_prelude.h` was introduced in v5.0.
+This project requires **ESP-IDF v5.x**, and `scripts/setup-wsl.sh` pins
+**v5.4.4**. Use that exact version unless you have a reason not to.
+
+Note the `-b v5.4.4` in the clone above. Without it you get `master`, which is
+Espressif's rolling development branch, currently v6.1-dev. That is a moving
+snapshot nobody can reproduce from a version number, and it is a major version
+ahead of what this code targets. Two people on different versions compile the
+same source into different binaries, which turns any disagreement between their
+robots into a mystery.
+
+v4.x fails outright: `mcpwm_prelude.h` was introduced in v5.0.
+
+Already cloned without the branch? Check what you have and fix it:
+
+```bash
+git -C ~/esp/esp-idf describe --tags      # want v5.4.4, not v6.1-dev-...
+git -C ~/esp/esp-idf checkout v5.4.4
+git -C ~/esp/esp-idf submodule update --init --recursive
+cd ~/esp/esp-idf && ./install.sh esp32
+```
 
 ---
 
