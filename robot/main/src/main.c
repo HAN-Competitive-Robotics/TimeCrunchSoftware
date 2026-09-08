@@ -12,6 +12,7 @@
 #include "safety_monitor.h"
 #include "weapon_controller.h"
 #include "nrf24.h"
+#include "trim_store.h"
 #include "robot_config.h"
 #if THERMAL_PROTECTION_ENABLED
 #include "tempsensor_driver.h"
@@ -152,6 +153,22 @@ void task_radio(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d  RPM: %.1f",
                              left_raw, right_raw, weapon_raw, failsafe_raw, hall_sensor_get_rpm());
 
+                    /* Not a drive command. Bytes 0 and 1 are trim values, not
+                     * throttles, so fall through to the next packet rather
+                     * than steering from them. */
+                    if (failsafe_raw == PACKET_OPCODE_SET_TRIM) {
+                        if (weapon_raw != TRIM_COMMAND_MAGIC) {
+                            ESP_LOGW(TAG, "Trim command with bad magic 0x%02X — ignored",
+                                     weapon_raw);
+                        } else {
+                            int8_t tl = (int8_t)((int)left_raw  - PACKET_CENTER);
+                            int8_t tr = (int8_t)((int)right_raw - PACKET_CENTER);
+                            ESP_LOGI(TAG, "Trim command: L=%d R=%d", tl, tr);
+                            trim_store_set(tl, tr);
+                        }
+                        continue;
+                    }
+
 #if THERMAL_PROTECTION_ENABLED
                     bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
                                         temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
@@ -209,8 +226,9 @@ void task_radio(void *pvParameters)
                         vTaskDelay(pdMS_TO_TICKS(200));
                         esp_deep_sleep_start();
                     } else if (!state.hard_failsafe) {
-                        int left  = map_byte_to_throttle(left_raw);
-                        int right = map_byte_to_throttle(right_raw);
+                        motor_trim_t tr = trim_store_get();
+                        int left  = map_byte_to_throttle(trim_apply(left_raw,  tr.left));
+                        int right = map_byte_to_throttle(trim_apply(right_raw, tr.right));
 
                         state.weapon_throttle = weapon_raw;
                         state.failsafe_active = false;
@@ -336,6 +354,13 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(werr);
     ESP_LOGI(TAG, "Task watchdog armed at %d ms", TASK_WDT_TIMEOUT_MS);
+
+    /* Before the tasks start, so the first packet is already trimmed. A
+     * failure here is logged and ignored: untrimmed driving is worse than
+     * trimmed driving, but far better than not booting. */
+    trim_store_init();
+    motor_trim_t boot_trim = trim_store_get();
+    ESP_LOGI(TAG, "Motor trim: L=%d R=%d", boot_trim.left, boot_trim.right);
 
     state_queue = xQueueCreate(1, sizeof(robot_state_t));
     if (state_queue == NULL) {

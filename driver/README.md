@@ -21,22 +21,44 @@ python station.py
 python station.py --calibrate
 ```
 
-## Controls (default)
+## Drive modes
+
+Three fixed modes. Cycle with **T** or the dropdown in the header.
+
+| Mode | Controls |
+|------|----------|
+| Tank Drive | Left stick Y = left track, right stick Y = right track |
+| Arcade Drive | Left stick Y = throttle, left stick X = steer |
+| Rocket League | RT = forward, LT = reverse, left stick X = steer |
+
+Rocket League steering stays live at zero throttle, so the robot can spin on
+the spot. The game does not allow that; a battlebot needs it.
+
+Shared controls in every mode:
 
 | Function | Gamepad | Keyboard |
 |----------|---------|----------|
-| Left motor | Left stick Y | W / S |
-| Right motor | Right stick Y | UP / DOWN |
-| Weapon | RB | Space |
-| Failsafe | B | F |
+| Weapon toggle | B10 | Space |
+| Weapon attack / reverse | RT (not in Rocket League) | LShift |
+| Failsafe | B1 | F |
+| Arm | B6 | A |
+| Drive invert | B9 | I |
 
-> **Note:** `F` triggers failsafe. `ESC` quits the application.
+Rocket League mode has no gamepad binding for weapon attack, because both
+triggers are the throttle. Use LShift, or pick a free button and add it.
 
-## Edit Controls
+## Changing controls
 
-Press **F2** inside the station to open the keybind editor. Click any cell to select it, then click again (or press Enter) to rebind. Supports both keyboard and gamepad inputs. Profiles are saved automatically to `profiles.json`.
+Bindings live in `drive_modes.py`. Edit that file and restart; there is no
+in-app editor. This is deliberate: rebindable profiles meant every laptop
+drifted to a different layout and nobody could say what a given button did
+without opening someone's `profiles.json`.
 
-Run `python station.py --calibrate` to discover your gamepad's axis and button numbers.
+To find axis and button numbers for your pad:
+
+```bash
+python station.py --calibrate
+```
 
 ## Packet Format
 

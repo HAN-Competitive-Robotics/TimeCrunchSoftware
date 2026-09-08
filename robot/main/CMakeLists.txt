@@ -8,5 +8,7 @@ idf_component_register(
          "src/weapon_controller.c"
          "src/safety_monitor.c"
          "src/nrf24.c"
+         "src/trim_store.c"
     INCLUDE_DIRS "./include"
+    REQUIRES nvs_flash
 )

@@ -21,8 +21,9 @@ for _pkg, _pip in [("dearpygui", "dearpygui"), ("pygame", "pygame"), ("serial", 
 import pygame
 import dearpygui.dearpygui as dpg
 
-from profiles    import ProfileManager, BINDABLE_ACTIONS, _DEFAULT_KEYBINDS
-from keymap      import init_keymap, resolve_key, dpg_key_to_name, key_display, gp_display
+import drive
+from drive_modes import DRIVE_MODES, MODE_NAMES, index_of
+from keymap      import init_keymap, key_display, gp_display
 from serial_link import SerialLink
 from inputmapper import InputMapper
 from calibrate   import calibrate
@@ -60,7 +61,7 @@ _gs: dict = {
     "killswitch":     False,
 }
 
-_cap: dict = {"active": False, "row": 0, "col": 0, "step": 0}
+_mode_idx: int = 0                # index into drive_modes.DRIVE_MODES
 _IND: dict[str, int] = {}
 _trim: dict = {"L": 0, "R": 0}    # raw offset −127…+127
 _mult: dict = {"L": 1.0, "R": 1.0}  # output multiplier 0.0…5.0
@@ -72,36 +73,22 @@ def _log_add(msg: str) -> None:
     _log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
 
+# Must match robot/main/include/robot_config.h. The failsafe byte doubles as
+# an opcode so commands fit the existing 4-byte payload.
+OPCODE_DRIVE    = 0
+OPCODE_SET_TRIM = 1
+TRIM_MAGIC      = 0x5A
+
+
 def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
     return f"{ml:02x}{mr:02x}{wb:02x}{fb:02x}\n".encode()
 
 
-def _expo_curve_data(expo: float) -> tuple[list[float], list[float]]:
-    xs = [i / 20.0 - 1.0 for i in range(41)]
-    ys = [x * (1.0 - expo) + x ** 3 * expo for x in xs]
-    return xs, ys
-
-
-# ─── Font loading ─────────────────────────────────────────────────────────────
-
-def _try_load_font() -> None:
-    candidates = [
-        Path.home() / "Library/Fonts/JetBrainsMono-Regular.ttf",
-        Path("/Library/Fonts/JetBrainsMono-Regular.ttf"),
-        Path.home() / "Library/Fonts/JetBrainsMonoNL-Regular.ttf",
-        Path("/Library/Fonts/Hack-Regular.ttf"),
-        Path("/Library/Fonts/FiraCode-Regular.ttf"),
-    ]
-    for path in candidates:
-        if path.exists():
-            try:
-                with dpg.font_registry():
-                    with dpg.font(str(path), 14) as fnt:
-                        pass
-                dpg.bind_font(fnt)
-                return
-            except Exception:
-                pass
+def trim_packet(trim_l: int, trim_r: int) -> bytes:
+    """Encode a set-trim command. Trim is offset by 127 so it fits a byte."""
+    return _hex_packet(max(0, min(255, 127 + trim_l)),
+                       max(0, min(255, 127 + trim_r)),
+                       TRIM_MAGIC, OPCODE_SET_TRIM)
 
 
 # ─── Indicator buttons ────────────────────────────────────────────────────────
@@ -173,104 +160,24 @@ def _update_bar(side: str, value: int) -> None:
     dpg.set_value(f"txt_val_{side}", str(value))
 
 
-# ─── Keybind table ────────────────────────────────────────────────────────────
-
-def _refresh_kb_table(profiles: ProfileManager) -> None:
-    kb = profiles.active.get("keybinds", {})
-    gp = profiles.active.get("gamepad", {})
-    for i, (_, _, is_axis, kb_pos, kb_neg, gp_key) in enumerate(BINDABLE_ACTIONS):
-        if _cap["active"] and _cap["row"] == i and _cap["col"] == 0:
-            lbl = ("PRESS + KEY…" if _cap["step"] == 0 else "PRESS − KEY…") if is_axis else "PRESS KEY…"
-            dpg.configure_item(f"kk_{i}", label=lbl)
-            dpg.bind_item_theme(f"kk_{i}", _IND["warn"])
-        else:
-            lbl = (f"{key_display(kb.get(kb_pos))} / {key_display(kb.get(kb_neg))}"
-                   if is_axis else key_display(kb.get(kb_pos, "")))
-            dpg.configure_item(f"kk_{i}", label=lbl or "—")
-            dpg.bind_item_theme(f"kk_{i}", 0)
-
-        if _cap["active"] and _cap["row"] == i and _cap["col"] == 1:
-            dpg.configure_item(f"gp_{i}", label="MOVE / PRESS…")
-            dpg.bind_item_theme(f"gp_{i}", _IND["warn"])
-        else:
-            dpg.configure_item(f"gp_{i}", label=gp_display(gp.get(gp_key)) or "—")
-            dpg.bind_item_theme(f"gp_{i}", 0)
-
-
-def _handle_joy_capture(event, profiles: ProfileManager, mapper: InputMapper) -> None:
-    if not _cap["active"] or _cap["col"] != 1:
-        return
-    _, _, is_axis, _, _, gp_key = BINDABLE_ACTIONS[_cap["row"]]
-    if event.type == pygame.JOYBUTTONDOWN:
-        cfg = {"button": event.button}
-        profiles.set_gamepad_bind(gp_key, cfg)
-        mapper.set_profile(profiles.active)
-        _cap["active"] = False
-        _log_add(f"Bound {gp_key}: B{event.button}")
-    elif event.type == pygame.JOYAXISMOTION and abs(event.value) > 0.5:
-        cfg = ({"axis": event.axis, "invert": event.value < 0, "deadzone": 0.15}
-               if is_axis else {"axis": event.axis, "threshold": 0.5})
-        profiles.set_gamepad_bind(gp_key, cfg)
-        mapper.set_profile(profiles.active)
-        _cap["active"] = False
-        _log_add(f"Bound {gp_key}: {gp_display(cfg)}")
-
-
-# ─── DPG key-press handler ────────────────────────────────────────────────────
+# ─── Key shortcuts ────────────────────────────────────────────────────────────
 
 def _on_key_press(sender, key_code, user_data) -> None:
-    profiles: ProfileManager
-    mapper: InputMapper
-    profiles, mapper = user_data
+    """Only shortcut left: T cycles the drive mode.
 
-    if key_code == dpg.mvKey_F2 and not _cap["active"]:
-        if dpg.is_item_shown("kb_win"):
-            _cap["active"] = False
-            dpg.hide_item("kb_win")
-        else:
-            _refresh_kb_table(profiles)
-            dpg.show_item("kb_win")
-        return
-
-    if key_code == dpg.mvKey_Escape:
-        if _cap["active"]:
-            _cap["active"] = False
-        elif dpg.is_item_shown("kb_win"):
-            dpg.hide_item("kb_win")
-        return
-
-    if not _cap["active"] or _cap["col"] != 0:
-        return
-
-    name = dpg_key_to_name(key_code)
-    if name is None or name in ("escape", "f2"):
-        return
-
-    _, _, is_axis, kb_pos, kb_neg, _ = BINDABLE_ACTIONS[_cap["row"]]
-    if is_axis:
-        if _cap["step"] == 0:
-            profiles.set_keybind(kb_pos, name)
-            mapper.set_profile(profiles.active)
-            _cap["step"] = 1
-        else:
-            profiles.set_keybind(kb_neg, name)
-            mapper.set_profile(profiles.active)
-            _cap["active"] = False
-            _log_add(f"Bound {kb_pos}/{kb_neg}")
-    else:
-        profiles.set_keybind(kb_pos, name)
-        mapper.set_profile(profiles.active)
-        _cap["active"] = False
-        _log_add(f"Bound {kb_pos}: {key_display(name)}")
+    Bindings themselves live in drive_modes.py and are not editable here by
+    design, so there is no capture flow and no editor window any more.
+    """
+    cycle_mode = user_data
+    if key_code == getattr(dpg, "mvKey_T", None):
+        cycle_mode()
 
 
 # ─── UI construction ──────────────────────────────────────────────────────────
 
-def _build_ui(cfg: dict, profiles: ProfileManager,
-              link: SerialLink, mapper: InputMapper) -> None:
-
-    _try_load_font()
-
+def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
+    """Builds the HUD. Returns the drive-mode cycle callback so main() can
+    bind it to the T key."""
     with dpg.theme() as g_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg,         (30, 30, 35))
@@ -306,89 +213,56 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
     _make_ind_themes()
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
-    def cb_drive(s, a, u):
-        profiles.toggle_drive_mode()
-        mapper.set_profile(profiles.active)
-        _gs["drive_inverted"] = False
-        dpg.configure_item("btn_drive", label=f"T: {profiles.active['drive_mode'].upper()}")
-        _log_add(f"Drive mode: {profiles.active['drive_mode'].upper()}")
+    def _apply_mode() -> None:
+        """Everything that has to happen when the drive mode changes.
 
-    def cb_profile(s, val, u):
-        idx = next(i for i, p in enumerate(profiles.profiles) if p["name"] == val)
-        profiles.select(idx)
-        mapper.set_profile(profiles.active)
+        Weapon is re-safed and invert cleared, because a control layout change
+        mid-match should never leave the weapon spun up under a binding the
+        driver has not adjusted to yet.
+        """
+        mode = DRIVE_MODES[_mode_idx]
+        mapper.set_mode(mode)
         _gs["drive_inverted"] = False
         _gs["weapon_state"]   = "safe"
-        dpg.configure_item("btn_drive", label=f"T: {profiles.active['drive_mode'].upper()}")
-        if dpg.does_item_exist("inp_profile_name"):
-            dpg.set_value("inp_profile_name", profiles.active["name"])
-        if dpg.does_item_exist("sl_expo"):
-            dpg.set_value("sl_expo", profiles.active.get("expo", 0.0))
-        _log_add(f"Profile: {profiles.active['name']}")
+        dpg.configure_item("btn_drive", label=f"T: {mode['name'].upper()}")
+        dpg.set_value("cmb_mode", mode["name"])
+        dpg.set_value("txt_hint", mode["hint"])
+        _log_add(f"Drive mode: {mode['name']}")
 
-    def cb_new(s, a, u):
-        profiles.new_named("")
-        mapper.set_profile(profiles.active)
-        _gs["drive_inverted"] = False
-        _gs["weapon_state"]   = "safe"
-        dpg.configure_item("cmb_profile",
-                           items=[p["name"] for p in profiles.profiles],
-                           default_value=profiles.active["name"])
-        dpg.configure_item("btn_drive", label=f"T: {profiles.active['drive_mode'].upper()}")
-        _log_add(f"Created: {profiles.active['name']}")
+    def cb_cycle_mode(s=None, a=None, u=None):
+        global _mode_idx
+        _mode_idx = (_mode_idx + 1) % len(DRIVE_MODES)
+        _apply_mode()
 
-    def cb_keybinds(s, a, u):
-        _refresh_kb_table(profiles)
-        dpg.set_value("inp_profile_name", profiles.active["name"])
-        dpg.set_value("sl_expo", profiles.active.get("expo", 0.0))
-        dpg.show_item("kb_win")
-
-    def cb_del_profile(s, a, u):
-        name = profiles.active["name"]
-        if profiles.delete(profiles.active_idx):
-            mapper.set_profile(profiles.active)
-            _gs["drive_inverted"] = False
-            _gs["weapon_state"]   = "safe"
-            dpg.configure_item("cmb_profile",
-                               items=[p["name"] for p in profiles.profiles],
-                               default_value=profiles.active["name"])
-            dpg.configure_item("btn_drive",
-                               label=f"T: {profiles.active['drive_mode'].upper()}")
-            dpg.hide_item("kb_win")
-            _log_add(f"Deleted '{name}'")
-        else:
-            _log_add("Can't delete the last profile")
-
-    def cb_close_kb(s, a, u):
-        _cap["active"] = False
-        dpg.hide_item("kb_win")
-
-    def cb_kb_cell(s, a, u):
-        row, col = u
-        _cap.update(active=True, row=row, col=col, step=0)
+    def cb_mode_select(s, val, u):
+        global _mode_idx
+        _mode_idx = index_of(val)
+        _apply_mode()
 
     def cb_arm_click(s, a, u):
         _gs["armed"] = not _gs["armed"]
         _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
-    def cb_rename_profile(s, a, u):
-        new_name = dpg.get_value("inp_profile_name").strip()
-        if not new_name:
-            return
-        profiles.active["name"] = new_name
-        profiles.save()
-        dpg.configure_item("cmb_profile",
-                           items=[p["name"] for p in profiles.profiles],
-                           default_value=new_name)
-        dpg.configure_item("kb_win", label="Keybinds — " + new_name)
-        _log_add(f"Profile renamed: '{new_name}'")
+    def cb_save_trim(s_, a, u):
+        """Push trim to the robot, which stores it in NVS and applies it.
 
-    def cb_expo(s, val, u):
-        profiles.active["expo"] = val
-        profiles.save()
-        mapper.set_profile(profiles.active)
-        xs, ys = _expo_curve_data(val)
-        dpg.set_value("expo_series", [xs, ys])
+        Refused while armed: the robot cannot tell a trim packet from a drive
+        packet being unsafe to act on, so the guard has to live here. Sent
+        several times because the link is one-way and lossy, and there is no
+        acknowledgement to wait for.
+        """
+        if _gs["armed"]:
+            _log_add("Disarm before saving trim")
+            return
+        if not link.ensure_connected():
+            _log_add("WARNING: trim not sent, serial not connected")
+            return
+        pkt = trim_packet(_trim["L"], _trim["R"])
+        sent = sum(1 for _ in range(5) if link.send(pkt))
+        if sent:
+            _log_add(f"Trim sent to robot: L={_trim['L']} R={_trim['R']}")
+        else:
+            _log_add("WARNING: trim send failed")
 
     def _sync_trim(side, val):
         val = max(-127, min(127, val))
@@ -422,7 +296,7 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
 
     with dpg.handler_registry():
         dpg.add_key_press_handler(callback=_on_key_press,
-                                  user_data=(profiles, mapper))
+                                  user_data=cb_cycle_mode)
 
     # ── Primary window ────────────────────────────────────────────────────────
     with dpg.window(tag="primary", no_title_bar=True, no_move=True,
@@ -439,24 +313,22 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                 with dpg.table_cell():
                     with dpg.group(horizontal=True):
                         dpg.add_button(
-                            label=f"T: {profiles.active['drive_mode'].upper()}",
-                            tag="btn_drive", callback=cb_drive, width=90)
+                            label=f"T: {DRIVE_MODES[_mode_idx]['name'].upper()}",
+                            tag="btn_drive", callback=cb_cycle_mode, width=150)
                         dpg.add_combo(
-                            tag="cmb_profile", width=170,
-                            items=[p["name"] for p in profiles.profiles],
-                            default_value=profiles.active["name"],
-                            callback=cb_profile)
-                        dpg.add_button(label="+", tag="btn_new",
-                                       callback=cb_new, width=28)
-                        dpg.add_button(label="F2: Keybinds", tag="btn_kb",
-                                       callback=cb_keybinds, width=112)
+                            tag="cmb_mode", width=170,
+                            items=MODE_NAMES,
+                            default_value=DRIVE_MODES[_mode_idx]["name"],
+                            callback=cb_mode_select)
 
         with dpg.group(horizontal=True):
-            dpg.add_text("○ SEARCHING…",    tag="txt_serial",  color=C_WARN[:3])
-            dpg.add_text("  │  ",            color=C_DIM[:3])
-            dpg.add_text("○ NO GAMEPAD",    tag="txt_gamepad", color=C_WARN[:3])
-            dpg.add_text("  │  ",            color=C_DIM[:3])
-            dpg.add_text("0.0 Hz  │  — ms", tag="txt_stats",   color=C_DIM[:3])
+            dpg.add_text("o SEARCHING...",  tag="txt_serial",  color=C_WARN[:3])
+            dpg.add_text("  |  ",           color=C_DIM[:3])
+            dpg.add_text("o NO GAMEPAD",    tag="txt_gamepad", color=C_WARN[:3])
+            dpg.add_text("  |  ",           color=C_DIM[:3])
+            dpg.add_text("0.0 Hz  |  - ms", tag="txt_stats",   color=C_DIM[:3])
+
+        dpg.add_text(DRIVE_MODES[_mode_idx]["hint"], tag="txt_hint", color=C_DIM[:3])
 
         dpg.add_separator()
 
@@ -502,6 +374,8 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                                       min_clamped=True, max_clamped=True,
                                       width=55, step=0, on_enter=True,
                                       callback=cb_trim_R_inp)
+                dpg.add_button(label="Save trim to robot", tag="btn_save_trim",
+                               callback=cb_save_trim, width=200)
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("MULT", color=C_DIM[:3])
@@ -587,94 +461,32 @@ def _build_ui(cfg: dict, profiles: ProfileManager,
                     for i in range(LOG_N):
                         dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3])
 
-    # ── Keybind editor ────────────────────────────────────────────────────────
-    with dpg.window(tag="kb_win", label="Keybinds — " + profiles.active["name"],
-                    show=False, modal=True,
-                    width=680, height=580, no_collapse=True, pos=[50, 20]):
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("Name:", color=C_DIM[:3])
-            dpg.add_input_text(tag="inp_profile_name",
-                               default_value=profiles.active["name"],
-                               width=180)
-            dpg.add_button(label="Rename", callback=cb_rename_profile, width=72)
-            dpg.add_spacer(width=12)
-            dpg.add_text("Expo:", color=C_DIM[:3])
-            dpg.add_slider_float(tag="sl_expo",
-                                 min_value=0.0, max_value=1.0,
-                                 default_value=profiles.active.get("expo", 0.0),
-                                 width=120, callback=cb_expo)
-
-        _expo0 = profiles.active.get("expo", 0.0)
-        _xs0, _ys0 = _expo_curve_data(_expo0)
-        with dpg.plot(tag="expo_plot", height=110, width=200,
-                      no_title=True, no_mouse_pos=True, no_box_select=True,
-                      no_menus=True):
-            xa = dpg.add_plot_axis(dpg.mvXAxis, tag="expo_xax",
-                                   no_tick_labels=True, no_gridlines=True)
-            ya = dpg.add_plot_axis(dpg.mvYAxis, tag="expo_yax",
-                                   no_tick_labels=True, no_gridlines=True)
-            dpg.set_axis_limits("expo_xax", -1.0, 1.0)
-            dpg.set_axis_limits("expo_yax", -1.0, 1.0)
-            dpg.add_line_series([-1.0, 1.0], [-1.0, 1.0], parent="expo_yax",
-                                tag="expo_linear", label="linear")
-            dpg.add_line_series(_xs0, _ys0, parent="expo_yax",
-                                tag="expo_series", label="expo")
-
-        dpg.add_text("Click a cell to capture.  ESC cancels.  F2 / close to exit.",
-                     color=C_DIM[:3])
-        dpg.add_separator()
-
-        with dpg.table(header_row=True, tag="kb_tbl",
-                       borders_innerH=True, borders_innerV=True,
-                       borders_outerH=True, borders_outerV=True,
-                       row_background=True, scrollY=True, height=-60):
-            dpg.add_table_column(label="Action",   width_fixed=True, init_width_or_weight=185)
-            dpg.add_table_column(label="Keyboard", width_fixed=True, init_width_or_weight=230)
-            dpg.add_table_column(label="Gamepad",  width_stretch=True)
-            for i, (_, label, _, _, _, _) in enumerate(BINDABLE_ACTIONS):
-                with dpg.table_row():
-                    dpg.add_text(f"  {label}")
-                    dpg.add_button(label="—", tag=f"kk_{i}",
-                                   width=-1, height=26,
-                                   callback=cb_kb_cell, user_data=(i, 0))
-                    dpg.add_button(label="—", tag=f"gp_{i}",
-                                   width=-1, height=26,
-                                   callback=cb_kb_cell, user_data=(i, 1))
-
-        dpg.add_separator()
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Delete Profile", tag="kb_del",
-                           callback=cb_del_profile, width=140)
-            dpg.add_spacer(width=8)
-            dpg.add_button(label="Close", callback=cb_close_kb, width=80)
-
-    dpg.set_primary_window("primary", True)
+    return cb_cycle_mode
 
 
 # ─── Per-frame UI update ──────────────────────────────────────────────────────
 
 def _update_ui(link: SerialLink, mapper: InputMapper,
-               profiles: ProfileManager, ml: int, mr: int) -> None:
+               ml: int, mr: int) -> None:
 
     if link.state == "connected":
-        dpg.set_value("txt_serial", f"● SERIAL OK  ({link.port_name})")
+        dpg.set_value("txt_serial", f"* SERIAL OK  ({link.port_name})")
         dpg.configure_item("txt_serial", color=C_GOOD[:3])
     elif link.state == "searching":
-        dpg.set_value("txt_serial", "○ SEARCHING…")
+        dpg.set_value("txt_serial", "o SEARCHING...")
         dpg.configure_item("txt_serial", color=C_WARN[:3])
     else:
-        dpg.set_value("txt_serial", "✕ SERIAL LOST")
+        dpg.set_value("txt_serial", "x SERIAL LOST")
         dpg.configure_item("txt_serial", color=C_DANGER[:3])
 
     if mapper.joystick_name:
-        dpg.set_value("txt_gamepad", f"● {mapper.joystick_name}")
+        dpg.set_value("txt_gamepad", f"* {mapper.joystick_name}")
         dpg.configure_item("txt_gamepad", color=C_GOOD[:3])
     else:
-        dpg.set_value("txt_gamepad", "○ KEYBOARD ONLY")
+        dpg.set_value("txt_gamepad", "o KEYBOARD ONLY")
         dpg.configure_item("txt_gamepad", color=C_WARN[:3])
 
-    dpg.set_value("txt_stats",  f"{link.current_hz:.1f} Hz  │  {link.idle_ms} ms")
+    dpg.set_value("txt_stats",  f"{link.current_hz:.1f} Hz  |  {link.idle_ms} ms")
     dpg.set_value("txt_stats2", f"L={ml}  R={mr}")
 
     _update_bar("L", ml)
@@ -703,35 +515,23 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
         idx = len(lines) - LOG_N + i
         dpg.set_value(f"log_{i}", lines[idx] if 0 <= idx < len(lines) else "")
 
-    p  = profiles.active
-    dm = p.get("drive_mode", "tank")
-    kb = p.get("keybinds", _DEFAULT_KEYBINDS)
-    gp = p.get("gamepad", {})
+    mode = DRIVE_MODES[_mode_idx]
+    keys = mode["keys"]
+    btns = mode["buttons"]
 
-    def _fmt(label, kb_pos, kb_neg=None, gp_key=None):
-        k = (f"{key_display(kb.get(kb_pos))} / {key_display(kb.get(kb_neg))}"
-             if kb_neg else key_display(kb.get(kb_pos, "")))
-        g = gp_display(gp.get(gp_key)) if gp_key else ""
-        return f"{label:<8}{k:<16}{g}"
+    def _fmt(label: str, action: str) -> str:
+        k = key_display(keys.get(action, ""))
+        g = gp_display(btns.get(action))
+        return f"{label:<10}{k:<10}{g}"
 
-    rows = (
-        [_fmt("Fwd",   "fwd_pos",    "fwd_neg",   "fwd"),
-         _fmt("Steer", "right_pos",  "right_neg", "steer")]
-        if dm == "arcade" else
-        [_fmt("L-Fwd", "fwd_pos",    "fwd_neg",   "fwd"),
-         _fmt("R-Fwd", "right_pos",  "right_neg", "right")]
-    ) + [
-        _fmt("Weapon",  "weapon",       None, "weapon"),
-        _fmt("W.Atk/Rv", "weapon_rev",  None, "weapon_rev"),
-        _fmt("Kill",    "killswitch",   None, "killswitch"),
-        _fmt("Arm",     "arm",          None, "arm"),
-        _fmt("Invert",  "drive_invert", None, "drive_invert"),
+    rows = [
+        _fmt("Weapon",   "weapon"),
+        _fmt("W.Atk/Rv", "weapon_rev"),
+        _fmt("Kill",     "killswitch"),
+        _fmt("Arm",      "arm"),
+        _fmt("Invert",   "drive_invert"),
     ]
     dpg.set_value("txt_controls", "\n".join(rows))
-
-    if dpg.is_item_shown("kb_win"):
-        _refresh_kb_table(profiles)
-        dpg.configure_item("kb_win", label="Keybinds — " + profiles.active["name"])
 
     vw = dpg.get_viewport_width()
     vh = dpg.get_viewport_height()
@@ -754,9 +554,8 @@ def main() -> None:
         calibrate()
         return
 
-    cfg      = json.loads(CONFIG_PATH.read_text())
-    profiles = ProfileManager()
-    link     = SerialLink(cfg)
+    cfg  = json.loads(CONFIG_PATH.read_text())
+    link = SerialLink(cfg)
 
     pygame.init()
 
@@ -770,20 +569,20 @@ def main() -> None:
     dpg.setup_dearpygui()
     dpg.show_viewport()
 
-    mapper = InputMapper(profiles.active)
-    _build_ui(cfg, profiles, link, mapper)
+    mapper = InputMapper(DRIVE_MODES[_mode_idx])
+    cycle_mode = _build_ui(cfg, link, mapper)
 
     if link.ensure_connected():
         _log_add(f"Serial connected: {link.port_name}")
     else:
-        _log_add("Serial searching…")
+        _log_add("Serial searching...")
     _log_add(f"Gamepad: {mapper.joystick_name}" if mapper.joystick_name
-             else "No gamepad — keyboard only")
-    _log_add(f"Profile: {profiles.active['name']}")
+             else "No gamepad - keyboard only")
+    _log_add(f"Drive mode: {DRIVE_MODES[_mode_idx]['name']}")
 
     rate_hz   = cfg["serial"]["rate_hz"]
     last_send = 0.0
-    prev_inv = prev_arm = prev_wpn = prev_overlay = False
+    prev_inv = prev_arm = prev_wpn = False
 
     while dpg.is_dearpygui_running():
         now = time.time()
@@ -792,79 +591,64 @@ def main() -> None:
             msg = mapper.handle_event(event)
             if msg:
                 _log_add(msg)
-            _handle_joy_capture(event, profiles, mapper)
-
-        overlay = dpg.is_item_shown("kb_win")
-        if overlay and not prev_overlay:
-            _gs["weapon_state"] = "safe"
-            _log_add("Keybind editor opened — weapon safed")
 
         inv_raw  = mapper.read_button("drive_invert")
         kill_raw = mapper.read_button("killswitch")
         arm_raw  = mapper.read_button("arm")
         wpn_btn  = mapper.read_button("weapon")
         wpn_rev  = mapper.read_button("weapon_rev")
-        fwd, right = mapper.read_drive()
+        axis_a, axis_b = mapper.read_axes()
 
-        if not overlay:
-            dm = profiles.active.get("drive_mode")
-            if dm == "arcade":
-                motor_l = int(max(0, min(255, 127 + (fwd + right) * 128)))
-                motor_r = int(max(0, min(255, 127 + (fwd - right) * 128)))
+        if inv_raw and not prev_inv:
+            _gs["drive_inverted"] = not _gs["drive_inverted"]
+            _log_add(f"Drive invert {'ON' if _gs['drive_inverted'] else 'OFF'}")
+
+        motor_l, motor_r = drive.drive_bytes(
+            DRIVE_MODES[_mode_idx]["mix"], axis_a, axis_b,
+            mult_l=_mult["L"], mult_r=_mult["R"],
+            # Trim is applied by the robot, from its own saved value. Applying
+            # it here as well would double it. See cb_save_trim.
+            invert=_gs["drive_inverted"],
+        )
+
+        if kill_raw and not _gs["killswitch"]:
+            _gs["killswitch"] = True
+            _log_add("KILLSWITCH - robot latched until power cycle")
+            burst = b"7f7f7fff\n"
+            if link.ensure_connected():
+                for _ in range(5):
+                    link.send(burst)
             else:
-                motor_l = int(max(0, min(255, 127 + fwd   * 128)))
-                motor_r = int(max(0, min(255, 127 + right * 128)))
+                _log_add("WARNING: killswitch sent but serial not connected")
 
-            motor_l = int(max(0, min(255, 127 + (motor_l - 127) * _mult["L"] + _trim["L"])))
-            motor_r = int(max(0, min(255, 127 + (motor_r - 127) * _mult["R"] + _trim["R"])))
+        if arm_raw and not prev_arm:
+            _gs["armed"] = not _gs["armed"]
+            _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
-            if inv_raw and not prev_inv:
-                _gs["drive_inverted"] = not _gs["drive_inverted"]
-                _log_add(f"Drive invert {'ON' if _gs['drive_inverted'] else 'OFF'}")
-            if _gs["drive_inverted"]:
-                motor_l, motor_r = motor_r, motor_l
+        if not _gs["armed"]:
+            motor_l = motor_r = 127
+            _gs["weapon_state"] = "safe"
 
-            if kill_raw and not _gs["killswitch"]:
-                _gs["killswitch"] = True
-                _log_add("KILLSWITCH — robot latched until power cycle")
-                burst = b"7f7f7fff\n"
-                if link.ensure_connected():
-                    for _ in range(5):
-                        link.send(burst)
-                else:
-                    _log_add("WARNING: killswitch sent but serial not connected")
-
-            if arm_raw and not prev_arm:
-                _gs["armed"] = not _gs["armed"]
-                _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
-
-            if not _gs["armed"]:
-                motor_l = motor_r = 127
+        if _gs["armed"]:
+            if wpn_btn and not prev_wpn:
+                # Toggle weapon on (fwd idle) / off — also exits reverse spin
+                _gs["weapon_state"] = "idle" if _gs["weapon_state"] in ("safe", "idle_rev") else "safe"
+            elif _gs["weapon_state"] == "idle" and wpn_rev:
+                _gs["weapon_state"] = "attack"       # hold to escalate fwd
+            elif _gs["weapon_state"] == "attack" and not wpn_rev:
+                _gs["weapon_state"] = "idle"
+            elif _gs["weapon_state"] == "safe" and wpn_rev:
+                _gs["weapon_state"] = "idle_rev"     # hold in safe = reverse spin
+            elif _gs["weapon_state"] == "idle_rev" and not wpn_rev:
                 _gs["weapon_state"] = "safe"
 
-            if _gs["armed"]:
-                if wpn_btn and not prev_wpn:
-                    # Toggle weapon on (fwd idle) / off — also exits reverse spin
-                    _gs["weapon_state"] = "idle" if _gs["weapon_state"] in ("safe", "idle_rev") else "safe"
-                elif _gs["weapon_state"] == "idle" and wpn_rev:
-                    _gs["weapon_state"] = "attack"       # hold to escalate fwd
-                elif _gs["weapon_state"] == "attack" and not wpn_rev:
-                    _gs["weapon_state"] = "idle"
-                elif _gs["weapon_state"] == "safe" and wpn_rev:
-                    _gs["weapon_state"] = "idle_rev"     # hold in safe = reverse spin
-                elif _gs["weapon_state"] == "idle_rev" and not wpn_rev:
-                    _gs["weapon_state"] = "safe"
-
-            weapon_byte = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}[_gs["weapon_state"]]
-        else:
-            motor_l = motor_r = weapon_byte = 127
+        weapon_byte = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}[_gs["weapon_state"]]
 
         failsafe_byte = 255 if (kill_raw or _gs["killswitch"]) else 0
 
         prev_inv     = inv_raw
         prev_arm     = arm_raw
         prev_wpn     = wpn_btn
-        prev_overlay = overlay
 
         if now - last_send >= 1.0 / rate_hz:
             pkt = _hex_packet(motor_l, motor_r, weapon_byte, failsafe_byte)
@@ -881,9 +665,7 @@ def main() -> None:
                     _log_add("Serial write failed")
             last_send = now
 
-        _update_ui(link, mapper, profiles,
-                   motor_l if not overlay else 127,
-                   motor_r if not overlay else 127)
+        _update_ui(link, mapper, motor_l, motor_r)
 
         dpg.render_dearpygui_frame()
 
