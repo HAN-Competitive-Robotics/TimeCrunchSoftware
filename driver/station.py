@@ -30,7 +30,7 @@ from calibrate   import calibrate
 
 # ─── Layout ──────────────────────────────────────────────────────────────────
 LEFT_W  = 400         # fixed width of the safety/drive column; the rest stretches
-BANNER_H = 82
+BANNER_H = 96
 BAR_W   = 68
 BAR_H   = 180
 BAR_CY  = BAR_H // 2
@@ -522,11 +522,11 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             b = dpg.add_text("HCR MISSION CONTROL", color=C_ACCENT[:3])
             _use_font(b, F_SMALL)
             dpg.add_spacer(width=18)
-            t1 = dpg.add_text("o SEARCHING...",  tag="txt_serial",  color=C_WARN[:3])
+            t1 = dpg.add_text("SEARCHING...",   tag="txt_serial",  color=C_WARN[:3])
             _use_font(t1, F_SMALL)
             s1 = dpg.add_text(" | ", color=C_DIM[:3])
             _use_font(s1, F_SMALL)
-            t2 = dpg.add_text("o NO GAMEPAD",    tag="txt_gamepad", color=C_WARN[:3])
+            t2 = dpg.add_text("NO GAMEPAD",     tag="txt_gamepad", color=C_WARN[:3])
             _use_font(t2, F_SMALL)
             s2 = dpg.add_text(" | ", color=C_DIM[:3])
             _use_font(s2, F_SMALL)
@@ -535,7 +535,8 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
         # State banner
         with dpg.child_window(tag="banner_child", height=BANNER_H,
-                              border=False, no_scrollbar=True):
+                              border=False, no_scrollbar=True,
+                              no_scroll_with_mouse=True):
             dpg.add_spacer(height=8)
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=16)
@@ -637,7 +638,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                 with dpg.child_window(tag="w_log", height=-1, border=False,
                                       horizontal_scrollbar=False):
                     for i in range(LOG_SLOTS):
-                        lt = dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3])
+                        lt = dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3], show=False)
                         _use_font(lt, F_MONO)
                 with dpg.theme() as t_log:
                     with dpg.theme_component(dpg.mvAll):
@@ -703,23 +704,24 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     global _log_shown_rev
 
     if link.state == "connected":
-        dpg.set_value("txt_serial", f"* SERIAL OK  ({link.port_name})")
+        dpg.set_value("txt_serial", f"SERIAL OK ({link.port_name})")
         dpg.configure_item("txt_serial", color=C_GOOD[:3])
     elif link.state == "searching":
-        dpg.set_value("txt_serial", "o SEARCHING...")
+        dpg.set_value("txt_serial", "SEARCHING...")
         dpg.configure_item("txt_serial", color=C_WARN[:3])
     else:
-        dpg.set_value("txt_serial", "x SERIAL LOST")
+        dpg.set_value("txt_serial", "SERIAL LOST")
         dpg.configure_item("txt_serial", color=C_DANGER[:3])
 
     if mapper.joystick_name:
-        dpg.set_value("txt_gamepad", f"* {mapper.joystick_name}")
+        dpg.set_value("txt_gamepad", f"{mapper.joystick_name}")
         dpg.configure_item("txt_gamepad", color=C_GOOD[:3])
     else:
-        dpg.set_value("txt_gamepad", "o KEYBOARD ONLY")
+        dpg.set_value("txt_gamepad", "KEYBOARD ONLY")
         dpg.configure_item("txt_gamepad", color=C_WARN[:3])
 
-    dpg.set_value("txt_stats", f"{link.current_hz:.1f} Hz | {link.idle_ms} ms")
+    idle = "-" if not link.last_ok else str(link.idle_ms)
+    dpg.set_value("txt_stats", f"{link.current_hz:.1f} Hz | {idle} ms")
 
     _update_bar("L", ml)
     _update_bar("R", mr)
@@ -779,9 +781,9 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
             if idx >= 0:
                 s = lines[idx]
                 dpg.set_value(f"log_{i}", s)
-                dpg.configure_item(f"log_{i}", color=_log_color(s, i == 0))
+                dpg.configure_item(f"log_{i}", color=_log_color(s, i == 0), show=True)
             else:
-                dpg.set_value(f"log_{i}", "")
+                dpg.configure_item(f"log_{i}", show=False)
 
     def _fmt(label: str, action: str) -> str:
         k = key_display(keys.get(action, ""))
