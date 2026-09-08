@@ -10,5 +10,10 @@ idf_component_register(
          "src/nrf24.c"
          "src/trim_store.c"
     INCLUDE_DIRS "./include"
-    REQUIRES nvs_flash
 )
+
+# No REQUIRES here on purpose. "main" is special in ESP-IDF: with no explicit
+# requirements it depends on every component in the build, which is how this
+# project gets driver/spi_master.h, driver/mcpwm_prelude.h and nvs_flash.
+# Adding even one REQUIRES entry replaces that automatic list with just what
+# is named, which breaks every other include in the component.
