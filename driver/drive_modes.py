@@ -35,8 +35,7 @@ _COMMON_KEYS: dict = {
     "drive_invert": "i",
 }
 
-# Right trigger doubles as weapon attack in the stick-driven modes. Rocket
-# League mode needs both triggers for throttle, so it cannot share that.
+# Right trigger doubles as weapon attack/reverse.
 _TRIGGER_WEAPON: dict = {"weapon_rev": {"axis": 5, "threshold": 0.5}}
 
 DEADZONE = 0.15
@@ -59,32 +58,16 @@ TANK = {
 ARCADE = {
     "name":    "Arcade Drive",
     "mix":     "arcade",
-    "hint":    "L stick Y = throttle, L stick X = steer",
+    "hint":    "L stick = forward/back, R stick = steer left/right",
     "axis_a":  {"axis": 1, "invert": True,  "deadzone": DEADZONE},   # left Y
-    "axis_b":  {"axis": 0, "invert": False, "deadzone": DEADZONE},   # left X
+    "axis_b":  {"axis": 2, "invert": False, "deadzone": DEADZONE},   # right X
     "buttons": {**_COMMON_BUTTONS, **_TRIGGER_WEAPON},
     "keys":    {**_COMMON_KEYS,
                 "a_pos": "w", "a_neg": "s",
                 "b_pos": "right", "b_neg": "left"},
 }
 
-ROCKET_LEAGUE = {
-    "name":    "Rocket League",
-    "mix":     "rocket",
-    "hint":    "RT = forward, LT = reverse, L stick X = steer",
-    # axis_a is synthesised from the two triggers, not read directly.
-    "axis_a":  {"trigger_pos": 5, "trigger_neg": 4},
-    "axis_b":  {"axis": 0, "invert": False, "deadzone": DEADZONE},   # left X
-    # No _TRIGGER_WEAPON here: the triggers are the throttle. Weapon attack is
-    # keyboard-only on the pad until you pick a free button for it, which you
-    # can find with --calibrate.
-    "buttons": dict(_COMMON_BUTTONS),
-    "keys":    {**_COMMON_KEYS,
-                "a_pos": "w", "a_neg": "s",
-                "b_pos": "right", "b_neg": "left"},
-}
-
-DRIVE_MODES: list[dict] = [TANK, ARCADE, ROCKET_LEAGUE]
+DRIVE_MODES: list[dict] = [TANK, ARCADE]
 MODE_NAMES: list[str] = [m["name"] for m in DRIVE_MODES]
 
 

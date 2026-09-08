@@ -84,6 +84,26 @@ def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
     return f"{ml:02x}{mr:02x}{wb:02x}{fb:02x}\n".encode()
 
 
+WEAPON_BYTES = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}
+NEUTRAL = 127
+
+
+def outputs_inhibited(armed: bool, killswitch_latched: bool) -> bool:
+    """True when nothing may be commanded, whatever the sticks say.
+
+    Both conditions matter. Disarmed is the obvious one. A latched killswitch
+    is the important one: the robot should already be asleep from the failsafe
+    byte, but if that byte is ever missed or the robot fails to act on it, the
+    station must not still be streaming live throttle values at it.
+    """
+    return killswitch_latched or not armed
+
+
+def failsafe_byte(kill_pressed: bool, killswitch_latched: bool) -> int:
+    """255 latches the robot into deep sleep; only a power cycle clears it."""
+    return 255 if (kill_pressed or killswitch_latched) else 0
+
+
 def trim_packet(trim_l: int, trim_r: int) -> bytes:
     """Encode a set-trim command. Trim is offset by 127 so it fits a byte."""
     return _hex_packet(max(0, min(255, 127 + trim_l)),
@@ -160,24 +180,15 @@ def _update_bar(side: str, value: int) -> None:
     dpg.set_value(f"txt_val_{side}", str(value))
 
 
-# ─── Key shortcuts ────────────────────────────────────────────────────────────
-
-def _on_key_press(sender, key_code, user_data) -> None:
-    """Only shortcut left: T cycles the drive mode.
-
-    Bindings themselves live in drive_modes.py and are not editable here by
-    design, so there is no capture flow and no editor window any more.
-    """
-    cycle_mode = user_data
-    if key_code == getattr(dpg, "mvKey_T", None):
-        cycle_mode()
-
-
 # ─── UI construction ──────────────────────────────────────────────────────────
 
-def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
-    """Builds the HUD. Returns the drive-mode cycle callback so main() can
-    bind it to the T key."""
+def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
+    """Builds the HUD.
+
+    Drive mode changes only through the dropdown. There is deliberately no
+    keyboard shortcut: a hidden key that silently swaps the control layout
+    mid-match is a hazard, not a convenience.
+    """
     with dpg.theme() as g_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg,         (30, 30, 35))
@@ -224,15 +235,9 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
         mapper.set_mode(mode)
         _gs["drive_inverted"] = False
         _gs["weapon_state"]   = "safe"
-        dpg.configure_item("btn_drive", label=f"T: {mode['name'].upper()}")
         dpg.set_value("cmb_mode", mode["name"])
         dpg.set_value("txt_hint", mode["hint"])
         _log_add(f"Drive mode: {mode['name']}")
-
-    def cb_cycle_mode(s=None, a=None, u=None):
-        global _mode_idx
-        _mode_idx = (_mode_idx + 1) % len(DRIVE_MODES)
-        _apply_mode()
 
     def cb_mode_select(s, val, u):
         global _mode_idx
@@ -294,10 +299,6 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
     def cb_mult_R_inc(s, a, u):   _sync_mult("R", _mult["R"] + 0.1)
     def cb_mult_R_dec(s, a, u):   _sync_mult("R", _mult["R"] - 0.1)
 
-    with dpg.handler_registry():
-        dpg.add_key_press_handler(callback=_on_key_press,
-                                  user_data=cb_cycle_mode)
-
     # ── Primary window ────────────────────────────────────────────────────────
     with dpg.window(tag="primary", no_title_bar=True, no_move=True,
                     no_resize=True, no_close=True, no_collapse=True,
@@ -312,9 +313,6 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
                     dpg.add_text("HCR MISSION CONTROL", color=C_ACCENT[:3])
                 with dpg.table_cell():
                     with dpg.group(horizontal=True):
-                        dpg.add_button(
-                            label=f"T: {DRIVE_MODES[_mode_idx]['name'].upper()}",
-                            tag="btn_drive", callback=cb_cycle_mode, width=150)
                         dpg.add_combo(
                             tag="cmb_mode", width=170,
                             items=MODE_NAMES,
@@ -465,8 +463,6 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper):
     # from the top-left with dead space around it and clips on the right.
     dpg.set_primary_window("primary", True)
 
-    return cb_cycle_mode
-
 
 # ─── Per-frame UI update ──────────────────────────────────────────────────────
 
@@ -574,7 +570,7 @@ def main() -> None:
     dpg.show_viewport()
 
     mapper = InputMapper(DRIVE_MODES[_mode_idx])
-    cycle_mode = _build_ui(cfg, link, mapper)
+    _build_ui(cfg, link, mapper)
 
     if link.ensure_connected():
         _log_add(f"Serial connected: {link.port_name}")
@@ -629,11 +625,10 @@ def main() -> None:
             _gs["armed"] = not _gs["armed"]
             _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
-        if not _gs["armed"]:
-            motor_l = motor_r = 127
+        if outputs_inhibited(_gs["armed"], _gs["killswitch"]):
+            motor_l = motor_r = NEUTRAL
             _gs["weapon_state"] = "safe"
-
-        if _gs["armed"]:
+        else:
             if wpn_btn and not prev_wpn:
                 # Toggle weapon on (fwd idle) / off — also exits reverse spin
                 _gs["weapon_state"] = "idle" if _gs["weapon_state"] in ("safe", "idle_rev") else "safe"
@@ -646,16 +641,15 @@ def main() -> None:
             elif _gs["weapon_state"] == "idle_rev" and not wpn_rev:
                 _gs["weapon_state"] = "safe"
 
-        weapon_byte = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}[_gs["weapon_state"]]
-
-        failsafe_byte = 255 if (kill_raw or _gs["killswitch"]) else 0
+        weapon_byte = WEAPON_BYTES[_gs["weapon_state"]]
+        fs_byte     = failsafe_byte(kill_raw, _gs["killswitch"])
 
         prev_inv     = inv_raw
         prev_arm     = arm_raw
         prev_wpn     = wpn_btn
 
         if now - last_send >= 1.0 / rate_hz:
-            pkt = _hex_packet(motor_l, motor_r, weapon_byte, failsafe_byte)
+            pkt = _hex_packet(motor_l, motor_r, weapon_byte, fs_byte)
             was_searching = link.state == "searching"
             if link.ensure_connected():
                 if was_searching:
@@ -664,7 +658,7 @@ def main() -> None:
                     if args.debug:
                         print(f"[TX] {pkt.strip().decode()}  "
                               f"motors=({motor_l},{motor_r}) "
-                              f"weapon={weapon_byte} fs={failsafe_byte}")
+                              f"weapon={weapon_byte} fs={fs_byte}")
                 else:
                     _log_add("Serial write failed")
             last_send = now
