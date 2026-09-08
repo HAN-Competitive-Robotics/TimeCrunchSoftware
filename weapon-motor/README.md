@@ -79,6 +79,61 @@ at the top of `main/main.c` if 3 seconds proves awkward.
 
 Calibration mode has no deadman: the motor does not spin during calibration.
 
+## ESC LED codes
+
+Transcribed from section 07 of `8BL150-manual.pdf`, which is in this directory
+but is 11 MB and not something you want to scroll on a phone at an event.
+
+### Normal running
+
+| LED | Meaning |
+|---|---|
+| Both off | Throttle at neutral |
+| Red solid | Running forward |
+| Red solid + green solid | Full throttle |
+| Red solid, reversing | Reverse. Green also lights at maximum reverse, if reverse force is set to 100% |
+
+### Protection codes
+
+**Count the green flashes.** One, three and five are three different faults.
+
+| Pattern | Protection |
+|---|---|
+| Red, single flash, repeating | Low voltage cutoff |
+| Green, single flash, repeating | ESC overheat |
+| Green, three flashes, repeating | Current protection |
+| Green, five flashes, repeating | Capacitor overheat |
+
+What each one means for a weapon:
+
+**Green x3, current protection.** Most likely on spin-up or after an impact.
+The 8BL150 is rated 150 A continuous and 950 A peak, and accelerating a
+kilogram of drum from a standstill is exactly when that gets tested.
+
+**Green x1, ESC overheat.** Repeated spin-ups without cooling. The manual's
+advice is to let it cool and reduce the load rather than to keep going.
+
+**Red x1, low voltage.** The default cutoff is **3.0 V per cell**, so **12.0 V
+on a 4S pack**. A drum spinning up sags a LiPo hard and briefly, so this can
+fire mid-match on a pack that is not actually flat. Adjustable to 2.6 / 2.8 /
+3.0 / 3.2 / 3.4 V per cell, or disabled, using the program card.
+
+### Red flashing rapidly right after power-on
+
+No throttle signal detected, or the neutral point is not calibrated. This is
+the normal state when the ESC is powered before the ESP32 is producing PWM, so
+expect it during bringup. If it persists once the robot is running, check that
+the signal wire is on GPIO 21 and that the ESC has been calibrated.
+
+### Power-on beeps
+
+The ESC beeps once per detected cell, then a long beep when self-check
+completes. Four beeps then a long beep on a 4S pack. Free confirmation that
+the battery is the one you think it is.
+
+The motor beeps and the LED flashes at the same time, so if the motor beeps
+are too quiet to hear you can watch the LED instead.
+
 ## Flashing
 
 ```bash
