@@ -3,10 +3,33 @@
 #include "hall_sensor.h"
 #include "motor_driver.h"
 #include "safety_monitor.h"
+#include "robot_config.h"   /* WEAPON_HALL_SENSOR_FITTED */
 #include "esp_timer.h"
 
 #define OUTPUT_MIN   0.0f
 #define OUTPUT_MAX 100.0f
+
+/* Final gate on every commanded output. Applied after the ceiling so that a
+ * misconfigured WEAPON_MAX_OUTPUT_PCT still cannot exceed the actuator range. */
+static float clamp_output(float output)
+{
+    if (output > WEAPON_MAX_OUTPUT_PCT) output = WEAPON_MAX_OUTPUT_PCT;
+    if (output > OUTPUT_MAX)            output = OUTPUT_MAX;
+    if (output < OUTPUT_MIN)            output = OUTPUT_MIN;
+    return output;
+}
+
+/* Throttle to use when there is no usable RPM feedback.
+ *
+ * Derived from the commanded target rather than a single constant, so idle and
+ * attack stay distinguishable with the loop open. Anything at or above the
+ * attack target gets the attack level; any other non-zero command gets idle. */
+static float open_loop_output(float target_rpm)
+{
+    if (target_rpm <= 0.0f)                 return 0.0f;
+    if (target_rpm >= WEAPON_ATTACK_RPM)    return WEAPON_OL_ATTACK_PCT;
+    return WEAPON_OL_IDLE_PCT;
+}
 
 static float   s_integral     = 0.0f;
 static int64_t s_last_time    = 0;
@@ -71,19 +94,16 @@ void weapon_controller_update(void)
     if (dt <= 0.0f)            dt = 0.0f;
     if (dt > WEAPON_MAX_DT_S)  dt = WEAPON_MAX_DT_S;
 
-    // Feedback fault: the weapon is being driven but the Hall sensor is not
-    // reporting rotation, so measured RPM is not a measurement of anything.
+    // Run open-loop when there is no usable RPM: either no sensor is fitted at
+    // all, or one is fitted and has faulted.
     //
-    // Closing the loop anyway is the dangerous case: rpm reads 0, the error
-    // becomes the entire target, and the integrator drives the output to
-    // saturation on a weapon that may well be spinning. Instead hold the
-    // integrator at zero and emit the bare feed-forward term, which is exactly
-    // the open-loop behaviour this firmware shipped before the loop existed.
-    if (safety_weapon_feedback_fault()) {
+    // Closing the loop without feedback is the dangerous case: rpm reads 0, the
+    // error becomes the entire target, and the integrator drives the output to
+    // saturation on a weapon that may well be spinning. Hold the integrator at
+    // zero and command a fixed level chosen by the target instead.
+    if (!WEAPON_HALL_SENSOR_FITTED || safety_weapon_feedback_fault()) {
         s_integral = 0.0f;
-        float output = WEAPON_FF;
-        if (output > OUTPUT_MAX) output = OUTPUT_MAX;
-        if (output < OUTPUT_MIN) output = OUTPUT_MIN;
+        float output = clamp_output(open_loop_output(s_target_rpm));
         publish(s_target_rpm, 0.0f, 0.0f, output, false);
         motor_set_throttle(MOTOR_WEAPON, (int)output * reverse_flag);
         return;
@@ -126,8 +146,7 @@ void weapon_controller_update(void)
 
     // Clamp the magnitude before applying direction. reverse_flag (+1/-1)
     // selects spin direction; the PI magnitude is always non-negative.
-    if (output > OUTPUT_MAX) output = OUTPUT_MAX;
-    if (output < OUTPUT_MIN) output = OUTPUT_MIN;
+    output = clamp_output(output);
 
     publish(s_target_rpm, rpm, error, output, true);
     motor_set_throttle(MOTOR_WEAPON, (int)output * reverse_flag);

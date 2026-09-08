@@ -6,6 +6,17 @@
  * will not be created. */
 #define THERMAL_PROTECTION_ENABLED 0
 
+/* Set to 0 when the weapon Hall sensor is not physically fitted.
+ *
+ * With it 0 the weapon runs open-loop from the first command, at the levels in
+ * weapon_controller.h and under WEAPON_MAX_OUTPUT_PCT. Nothing waits for a
+ * feedback fault to be detected first.
+ *
+ * The fault path still exists and still works when this is 1; this flag is for
+ * the case where there is no sensor to fault in the first place, so the robot
+ * should not spend WEAPON_FEEDBACK_FAULT_MS pretending it might get RPM. */
+#define WEAPON_HALL_SENSOR_FITTED  0
+
 /* Byte length of every over-the-air packet.  Must match nrf24_basic_config()
  * call in task_radio and the driver station's _hex_packet() encoding:
  *   byte 0 = left motor   (0–255, center 127)
