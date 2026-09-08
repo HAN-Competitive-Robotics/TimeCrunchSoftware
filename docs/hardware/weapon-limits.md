@@ -134,9 +134,27 @@ just a choice, it is part of compliance: 5S fails both limits.
 ## Relationship to firmware
 
 `WEAPON_MAX_OUTPUT_PCT` in `robot/main/include/weapon_controller.h` caps
-throttle. It is **not** what keeps this weapon legal — the hardware does that.
-It exists to limit current and to keep speeds low while safety systems are
-unproven.
+throttle. It is now set to **100%** (full), with open-loop attack
+(`WEAPON_OL_ATTACK_PCT`) at **100%** and idle (`WEAPON_OL_IDLE_PCT`) at **30%**,
+because the calculation above shows 100% is inside both limits with margin, so
+holding it lower only costs weapon performance.
+
+The ceiling is **not** what keeps this weapon legal — the hardware and the
+physics do that — so at 100% there is no longer any firmware margin standing
+between a wrong input and an illegal weapon. Two things this now rests on
+entirely:
+
+- **The 2:1 pulley ratio in the inputs table.** It is the one figure never
+  measured directly (see "Still to verify"), and it is a linear multiplier on
+  tip speed and squares into energy. If it is actually 1:1, full throttle is
+  435 mph and ~6.5 kJ — roughly 4x over. Count the teeth before running 100%.
+- **No RPM readback.** With no Hall sensor fitted there is no way to confirm
+  the real spin-up speed on the bench, so the theoretical table below is the
+  only evidence you have. The wireless bench test commands a percentage; it
+  does not measure the resulting rpm.
+
+Full throttle is also the highest current draw, hardest at spin-up. The
+QUICRUN WP 8BL150 G2 is rated 150 A continuous / 950 A peak.
 
 Throttle maps roughly linearly to rpm at no load, so:
 

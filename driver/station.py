@@ -160,7 +160,7 @@ WEAPON_TEST_MAGIC  = 0xA7
 # Mirror of WEAPON_MAX_OUTPUT_PCT in robot/main/include/weapon_controller.h.
 # The robot clamps to its own ceiling regardless, so this only keeps the UI
 # from offering a number the firmware will silently cut down.
-WPN_TEST_MAX   = 60
+WPN_TEST_MAX   = 100
 TEST_DEADMAN_S = 5.0
 
 

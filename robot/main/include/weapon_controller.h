@@ -32,7 +32,7 @@
 // fresh pack, because a fully charged battery spins faster at the same
 // throttle percentage.
 #ifndef WEAPON_MAX_OUTPUT_PCT
-#define WEAPON_MAX_OUTPUT_PCT   60.0f
+#define WEAPON_MAX_OUTPUT_PCT   100.0f
 #endif
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@
 // Both are clamped by WEAPON_MAX_OUTPUT_PCT, so raising them cannot breach the
 // ceiling above.
 #define WEAPON_OL_IDLE_PCT      30.0f
-#define WEAPON_OL_ATTACK_PCT    50.0f
+#define WEAPON_OL_ATTACK_PCT    100.0f
 
 // Closed-loop gains. Both zero ships the historical open-loop behaviour.
 //

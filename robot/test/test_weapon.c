@@ -85,8 +85,8 @@ static void test_zero_gains_are_open_loop(void)
     weapon_telemetry_t t; weapon_controller_get_telemetry(&t);
     char buf[128];
     snprintf(buf, sizeof buf, "output=%.1f%% integral=%.3f", t.output, t.integral);
-    check("KP=KI=0 gives exactly the feed-forward baseline",
-          fabsf(t.output - WEAPON_FF) < 0.001f, buf);
+    check("open-loop attack command drives WEAPON_OL_ATTACK_PCT",
+          fabsf(t.output - WEAPON_OL_ATTACK_PCT) < 0.001f, buf);
     check("no integral accumulates while the loop is open",
           fabsf(t.integral) < 1e-6f, buf);
 }
@@ -108,11 +108,11 @@ static void test_fault_does_not_wind_up(void)
 
     weapon_telemetry_t t; weapon_controller_get_telemetry(&t);
     char buf[128];
-    snprintf(buf, sizeof buf, "output=%.1f%% (feed-forward is %.0f%%), integral=%.3f",
-             t.output, WEAPON_FF, t.integral);
-    check("dead sensor degrades to feed-forward, NOT full throttle",
-          fabsf(t.output - WEAPON_FF) < 0.001f && t.output < 99.0f, buf);
-    check("integrator is held at zero during a feedback fault",
+    snprintf(buf, sizeof buf, "output=%.1f%% (OL attack is %.0f%%), integral=%.3f",
+             t.output, WEAPON_OL_ATTACK_PCT, t.integral);
+    check("with no usable feedback the weapon holds the open-loop level",
+          fabsf(t.output - WEAPON_OL_ATTACK_PCT) < 0.001f, buf);
+    check("integrator is held at zero with no feedback",
           fabsf(t.integral) < 1e-6f, buf);
     check("telemetry reports the loop as open", t.feedback_ok == false, "");
 }
@@ -181,14 +181,14 @@ static void test_bench_test_percent(void)
     check("test(0) commands 0%", g_last_weapon_cmd == 0, NULL);
 
     /* WEAPON_MAX_OUTPUT_PCT is the hard ceiling; 100 must clamp to it. */
-    weapon_controller_test(100);
+    weapon_controller_test(150);
     char buf[96];
     snprintf(buf, sizeof buf, "commanded %d, ceiling %.0f",
              g_last_weapon_cmd, (double)WEAPON_MAX_OUTPUT_PCT);
-    check("test(100) is clamped to the ceiling",
+    check("test(150) is clamped to the ceiling",
           g_last_weapon_cmd == (int)WEAPON_MAX_OUTPUT_PCT, buf);
-    check("test(-100) is clamped to the ceiling in reverse",
-          (weapon_controller_test(-100), g_last_weapon_cmd) == -(int)WEAPON_MAX_OUTPUT_PCT, NULL);
+    check("test(-150) is clamped to the ceiling in reverse",
+          (weapon_controller_test(-150), g_last_weapon_cmd) == -(int)WEAPON_MAX_OUTPUT_PCT, NULL);
 
     /* Telemetry reports open-loop (no feedback) during a bench test. */
     weapon_controller_test(30);
