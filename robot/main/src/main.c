@@ -234,8 +234,10 @@ void task_radio(void *pvParameters)
 
                         state.weapon_throttle = weapon_raw;
                         state.failsafe_active = false;
-                        motor_set_throttle(MOTOR_LEFT_WHEEL, -left);
-                        motor_set_throttle(MOTOR_RIGHT_WHEEL, right);
+                        motor_set_throttle(MOTOR_LEFT_WHEEL,
+                                           MOTOR_INVERT_LEFT  ? -left  : left);
+                        motor_set_throttle(MOTOR_RIGHT_WHEEL,
+                                           MOTOR_INVERT_RIGHT ? -right : right);
                     }
 
                     state.packet_received = true;
