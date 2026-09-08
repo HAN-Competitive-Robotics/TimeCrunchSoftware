@@ -8,8 +8,8 @@ All GPIO assignments are defined in header files. This table is derived directly
 |---|---|---|---|---|---|
 | 4 | `nrf24.h` | `NRF24_PIN_CE` | nRF24L01+ Chip Enable | OUT | Active HIGH  enables RX mode |
 | 5 | `nrf24.h` | `NRF24_PIN_CSN` | nRF24L01+ SPI CS | OUT | Active LOW  manual toggle in driver |
+| 12 | `motor_driver.h` | `MOTOR_PIN_LEFT_WHEEL` | Left wheel ESC PWM | OUT | MCPWM group 0. **Strapping pin** — see note below |
 | 13 | `motor_driver.h` | `MOTOR_PIN_RIGHT_WHEEL` | Right wheel ESC PWM | OUT | MCPWM group 0 |
-| 14 | `motor_driver.h` | `MOTOR_PIN_LEFT_WHEEL` | Left wheel ESC PWM | OUT | MCPWM group 0 |
 | 15 | `encoder_driver.h` | `ENCODER_GPIO` | Weapon Hall encoder | IN | PCNT, both-edge count, pull-up enabled |
 | 18 | `nrf24.h` | `NRF24_PIN_CLK` | SPI clock | OUT | SPI3_HOST (VSPI), 8 MHz |
 | 19 | `nrf24.h` | `NRF24_PIN_MISO` | SPI MISO | IN | SPI3_HOST (VSPI) |
@@ -23,6 +23,17 @@ All GPIO assignments are defined in header files. This table is derived directly
 
 ---
 
+## GPIO 12 is a strapping pin
+
+The left wheel ESC now sits on GPIO 12, which is MTDI. Its level at reset
+selects the flash voltage: held high at boot, the ESP32 configures VDD_SDIO
+for 1.8 V flash and will not start on a 3.3 V module. The symptom is a board
+that refuses to boot with the ESC connected but boots fine with it unplugged.
+
+Most ESC signal inputs are high-impedance and idle low, which is why this
+usually works. If the robot ever fails to boot with the ESC attached, this is
+the first thing to check.
+
 ## Available GPIOs
 
 The following ESP32 GPIOs are **not used** by the current firmware and are available for expansion:
@@ -31,7 +42,7 @@ The following ESP32 GPIOs are **not used** by the current firmware and are avail
 |---|---|
 | 0 | Boot strapping pin  avoid using as output |
 | 2 | Boot strapping pin  avoid using as output |
-| 12 | Boot strapping pin  JTAG TDI, affects flash voltage |
+| 14 | Generally safe |
 | 16 | Generally safe |
 | 17 | Generally safe |
 | 32 | Input only (no internal pull-up/down on some boards) |
