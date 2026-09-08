@@ -56,7 +56,7 @@ sudo apt install git cmake ninja-build python3 python3-pip libffi-dev libssl-dev
 
 # Clone and install
 mkdir -p ~/esp && cd ~/esp
-git clone --recursive https://github.com/espressif/esp-idf.git
+git clone -b v5.4.4 --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf
 ./install.sh esp32        # downloads ~1.5 GB toolchain
 
@@ -73,7 +73,26 @@ source ~/esp/esp-idf/export.sh
 idf.py --version    # ESP-IDF v5.x.x
 ```
 
-This project requires **ESP-IDF v5.x**. v4.x will fail — `mcpwm_prelude.h` was introduced in v5.0.
+This project requires **ESP-IDF v5.x**, and `scripts/setup-wsl.sh` pins
+**v5.4.4**. Use that exact version unless you have a reason not to.
+
+Note the `-b v5.4.4` in the clone above. Without it you get `master`, which is
+Espressif's rolling development branch, currently v6.1-dev. That is a moving
+snapshot nobody can reproduce from a version number, and it is a major version
+ahead of what this code targets. Two people on different versions compile the
+same source into different binaries, which turns any disagreement between their
+robots into a mystery.
+
+v4.x fails outright: `mcpwm_prelude.h` was introduced in v5.0.
+
+Already cloned without the branch? Check what you have and fix it:
+
+```bash
+git -C ~/esp/esp-idf describe --tags      # want v5.4.4, not v6.1-dev-...
+git -C ~/esp/esp-idf checkout v5.4.4
+git -C ~/esp/esp-idf submodule update --init --recursive
+cd ~/esp/esp-idf && ./install.sh esp32
+```
 
 ---
 
