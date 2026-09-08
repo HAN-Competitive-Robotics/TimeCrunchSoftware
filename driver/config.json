@@ -62,6 +62,8 @@
   "safety": {
     "_comment": "weapon_password_sha256 gates the weapon unlock button. This is an interlock against ACCIDENTAL weapon activation, not access control: anyone who can edit this file can replace the hash, and anyone who can edit station.py can remove the check entirely. Set it with 'python station.py --set-weapon-password'. An empty string means the unlock button still needs a deliberate click-through, just no password.",
     "weapon_password_sha256": "b0dea5555379c9e3384dd1e771de9d73db4ee7f9c24725bfe8b757b3768b015f",
-    "relock_on_disarm": true
+    "relock_on_disarm": true,
+    "failsafe_on_dongle_removal": true,
+    "_comment_dongle": "failsafe_on_dongle_removal: if the dongle leaves USB, latch a killswitch so the robot is deep-slept the moment it is reconnected. Great for bench tests (unplug = guaranteed kill). Turn OFF for matches, where a momentary USB glitch would otherwise permanently kill the bot mid-fight instead of riding out the blip."
   }
 }

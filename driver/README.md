@@ -84,6 +84,23 @@ guess. Once the robot has been power cycled, click RESET KILLSWITCH, which
 replaces the kill button while latched. Reset returns the station to the
 safest state: disarmed, weapon locked.
 
+### Failsafe on dongle removal
+
+`safety.failsafe_on_dongle_removal` in `config.json` (default **on**) makes
+pulling the dongle a real kill. The station's serial link is to the dongle over
+USB, so when the dongle leaves USB the station latches the killswitch; the
+moment it is plugged back in, the robot is commanded into deep sleep. It clears
+with RESET KILLSWITCH like any other kill.
+
+This keys off USB removal only, not the radio: an RF dropout leaves the dongle
+enumerated and the serial link up, so it does **not** trigger, and mid-match
+radio blips stay recoverable exactly as before.
+
+**Turn this OFF for competition matches.** During a match a momentary USB glitch
+would otherwise latch the kill and permanently deep-sleep the bot mid-fight
+instead of riding out the blip. It is meant for bench testing, where "unplug =
+guaranteed kill" is exactly what you want.
+
 ## Weapon bench test
 
 The right card has a collapsible **WEAPON TEST (BENCH)** section: a wireless

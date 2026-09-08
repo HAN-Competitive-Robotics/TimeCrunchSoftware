@@ -130,6 +130,7 @@ _banner_shown: tuple | None = None
 _trim: dict = {"L": 0, "R": 0}    # raw offset −127…+127
 _mult: dict = {"L": 1.0, "R": 1.0}  # output multiplier 0.0…5.0
 _pw_purpose: str = "unlock"       # what the password modal is gating right now
+_failsafe_on_dongle_removal: bool = True
 _test: dict = {"enabled": False, "mag": 40, "dir": 1, "deadline": 0.0}
 
 
@@ -228,6 +229,19 @@ def test_should_spin(enabled: bool, now: float, deadline: float,
     inside the 5-second deadman window. Every one of these dropping stops it:
     the deadman lapsing, the link dropping, or the killswitch latching."""
     return bool(enabled and connected and not killswitch_latched and now < deadline)
+
+
+def dongle_pull_kills(prev_connected: bool, now_connected: bool,
+                      enabled: bool, already_latched: bool) -> bool:
+    """Latch a killswitch when the dongle drops off USB (connected -> not).
+
+    The station's serial link is to the dongle over USB, not to the robot, so
+    this fires on USB removal only. An RF dropout leaves the dongle enumerated
+    and the serial link up, so mid-match radio blips do NOT trigger this and
+    stay recoverable exactly as before. Once latched, the loop sends failsafe
+    255 with every packet, so the moment the dongle is plugged back in the
+    robot is commanded into deep sleep."""
+    return enabled and prev_connected and not now_connected and not already_latched
 
 
 def trigger_killswitch(link: SerialLink) -> None:
@@ -1082,6 +1096,8 @@ def main() -> None:
     _safety = cfg.get("safety", {})
     _weapon_pw_hash   = _safety.get("weapon_password_sha256", "")
     _relock_on_disarm = _safety.get("relock_on_disarm", True)
+    global _failsafe_on_dongle_removal
+    _failsafe_on_dongle_removal = _safety.get("failsafe_on_dongle_removal", True)
     if not _weapon_pw_hash:
         _log_add("No weapon password set - unlock needs only a confirmation")
 
@@ -1111,6 +1127,7 @@ def main() -> None:
     rate_hz   = cfg["serial"]["rate_hz"]
     last_send = 0.0
     prev_inv = prev_arm = prev_wpn = False
+    prev_link_connected = (link.state == "connected")
 
     while dpg.is_dearpygui_running():
         now = time.time()
@@ -1199,6 +1216,14 @@ def main() -> None:
                 else:
                     _log_add("Serial write failed")
             last_send = now
+
+        now_connected = (link.state == "connected")
+        if dongle_pull_kills(prev_link_connected, now_connected,
+                             _failsafe_on_dongle_removal, _gs["killswitch"]):
+            _gs["killswitch"] = True
+            _test["enabled"] = False
+            _log_add("Dongle disconnected - failsafe latched, robot killed on reconnect")
+        prev_link_connected = now_connected
 
         _update_ui(link, mapper, motor_l, motor_r)
 
