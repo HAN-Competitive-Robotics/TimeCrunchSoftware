@@ -4,7 +4,11 @@
 
 // GPIO pin assignments for each motor
 #define MOTOR_PIN_RIGHT_WHEEL  13
-#define MOTOR_PIN_LEFT_WHEEL   14
+/* GPIO 12 is the MTDI strapping pin: its level at reset selects the flash
+ * voltage. Held high at boot the chip expects 1.8 V flash and will not
+ * start on a 3.3 V module. Make sure the ESC does not pull this line up
+ * while the ESP32 is resetting. */
+#define MOTOR_PIN_LEFT_WHEEL   12
 #define MOTOR_PIN_WEAPON       21
 
 typedef enum {

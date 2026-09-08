@@ -27,7 +27,7 @@ Each ESC has three connections: power, ground, and signal.
 
 ```
 Left wheel ESC:
-  Signal    →  GPIO 14
+  Signal    →  GPIO 12
   GND       →  ESP32 GND (signal ground reference)
   Power     →  Battery (via power distribution)
 
