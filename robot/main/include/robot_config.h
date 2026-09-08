@@ -17,6 +17,21 @@
  * should not spend WEAPON_FEEDBACK_FAULT_MS pretending it might get RPM. */
 #define WEAPON_HALL_SENSOR_FITTED  0
 
+/* --------------------------------------------------------------------------
+ * Motor direction
+ * --------------------------------------------------------------------------
+ * Set to 1 to reverse that side. Direction is a property of how the motor is
+ * mounted and which way its leads are landed, not of the control scheme, so it
+ * is corrected here rather than by inverting a stick axis in the station.
+ *
+ * The two sides face opposite ways on a differential drive, so exactly one of
+ * these is normally 1. If the robot drives backwards when you push forward,
+ * flip BOTH. If it spins on the spot instead of driving straight, flip ONE.
+ *
+ * Previously the left side was negated inline with no way to change it. */
+#define MOTOR_INVERT_LEFT   0
+#define MOTOR_INVERT_RIGHT  1
+
 /* Byte length of every over-the-air packet.  Must match nrf24_basic_config()
  * call in task_radio and the driver station's _hex_packet() encoding:
  *   byte 0 = left motor   (0–255, center 127)
