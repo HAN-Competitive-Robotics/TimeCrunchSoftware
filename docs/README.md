@@ -24,6 +24,7 @@ Laptop (Python) → nRF52840 Dongle (Zephyr) → ESP32 Robot (ESP-IDF)
 | [Build and Flash](firmware/build-and-flash.md) | Build system details, `idf.py` / `west` reference |
 | [Pinout](hardware/pinout.md) | Every GPIO, SPI, I²C, and PWM assignment |
 | [Wiring](hardware/wiring.md) | Physical wiring for nRF24L01+, ESCs, encoder, sensors |
+| [Weapon Limits](hardware/weapon-limits.md) | Tip speed and kinetic energy worked against the rules |
 
 ---
 
