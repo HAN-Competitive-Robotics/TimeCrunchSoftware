@@ -1,6 +1,7 @@
 # Driver Station
 
-Pygame-based ground control station for the battlebot. Supports keyboard and Xbox/gamepad input with an editable control mapping.
+DearPyGui ground control station for the battlebot. Keyboard and Xbox/gamepad
+input, with all bindings fixed in code (`drive_modes.py`).
 
 ## Setup
 
@@ -19,33 +20,50 @@ python station.py
 
 # Calibrate gamepad (see axis/button numbers)
 python station.py --calibrate
+
+# Set or clear the weapon unlock password
+python station.py --set-weapon-password
 ```
+
+## The screen
+
+- **Banner** (top): the one place that states the overall state. Grey
+  DISARMED, green ARMED, amber ARMED - WEAPON LIVE, red KILLSWITCH LATCHED.
+- **Left card**: the controls used mid-match. ARM/DISARM, the weapon
+  lock button (unlocking asks for the password), the weapon/drive/kill
+  indicators, drive mode dropdown, and the live motor output bars.
+- **Right card**: setup and telemetry. Trim and output multipliers, the
+  keybind reference (collapsed by default), and the event log, which grows
+  with the window.
+
+Buttons are labelled with the action a click performs (ARM, DISARM, UNLOCK
+WEAPON); the banner and indicator pills carry the state.
 
 ## Drive modes
 
-Three fixed modes. Cycle with **T** or the dropdown in the header.
+Two fixed modes, selected with the dropdown in the left card. There is
+deliberately no keyboard shortcut for switching: a hidden key that swaps the
+control layout mid-match is a hazard. Switching modes re-safes the weapon and
+clears drive invert.
 
 | Mode | Controls |
 |------|----------|
 | Tank Drive | Left stick Y = left track, right stick Y = right track |
-| Arcade Drive | Left stick Y = throttle, left stick X = steer |
-| Rocket League | RT = forward, LT = reverse, left stick X = steer |
-
-Rocket League steering stays live at zero throttle, so the robot can spin on
-the spot. The game does not allow that; a battlebot needs it.
+| Arcade Drive | Left stick Y = forward/back, right stick X = steer |
 
 Shared controls in every mode:
 
 | Function | Gamepad | Keyboard |
 |----------|---------|----------|
 | Weapon toggle | B10 | Space |
-| Weapon attack / reverse | RT (not in Rocket League) | LShift |
-| Failsafe | B1 | F |
+| Weapon attack / reverse | RT | LShift |
+| Killswitch | B1 | F |
 | Arm | B6 | A |
 | Drive invert | B9 | I |
 
-Rocket League mode has no gamepad binding for weapon attack, because both
-triggers are the throttle. Use LShift, or pick a free button and add it.
+The weapon only responds while the robot is armed, the killswitch is clear,
+and the weapon is unlocked. It re-locks automatically on disarm and on
+killswitch.
 
 ## Changing controls
 
@@ -62,13 +80,18 @@ python station.py --calibrate
 
 ## Packet Format
 
-The station sends 5 bytes every 20 ms (50 Hz):
+The station sends one line of ASCII hex at 50 Hz (`rate_hz` in
+`config.json`):
 
 ```
-[motor_left] [motor_right] [weapon] [failsafe] '\n'
+"7f7f7f00\n"
+ |  |  |  |
+ ml mr wb fs      two hex digits each
 ```
 
-Each value is 0–255 with 127 as center for motors.
+Motor bytes are 0-255 with 127 as centre. Weapon bytes: 127 safe, 160 idle,
+255 attack, 95 reverse idle. Failsafe byte 255 latches the robot into deep
+sleep until power cycled; 0 otherwise.
 
 ## Troubleshooting
 
@@ -76,4 +99,5 @@ Each value is 0–255 with 127 as center for motors.
 |---------|-----|
 | "Serial searching..." persists | Make sure the nRF52840 dongle is plugged in. Try unplugging and re-plugging it. |
 | Gamepad not detected | Run `python station.py --calibrate` to verify the OS sees it. Try unplugging and re-plugging. |
-| Keyboard inputs feel sluggish | Increase `rate` in `config.json` for that axis (default is 8). |
+| Keyboard driving feels sluggish | Raise `KB_RATE` in `drive_modes.py` (motor bytes per frame while a key is held, default 8). |
+| Text looks tiny and pixelated | No system font was found, so the built-in bitmap font is in use. On WSL/Ubuntu: `sudo apt install fonts-dejavu-core` and restart the station. |
