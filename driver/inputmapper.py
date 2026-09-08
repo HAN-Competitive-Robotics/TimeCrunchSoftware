@@ -20,6 +20,10 @@ class InputMapper:
         self.joystick_name: str | None = None
         self._a_f = 0.0
         self._b_f = 0.0
+        # While True the keyboard half of every binding is ignored (typing in
+        # a text field must not drive the robot). Gamepad reads are unaffected.
+        # The station sets this each frame from keyboard_captured().
+        self.kb_blocked = False
         if pygame.joystick.get_count() > 0:
             self._attach(0)
 
@@ -125,9 +129,11 @@ class InputMapper:
                 return self._trigger_pair(cfg), ramp
             return self._shaped_axis(cfg), ramp
         keys = self.mode["keys"]
+        # Blocked keys read as released, so a held ramp decays to zero
+        # instead of freezing at its last value.
         ramp = self._kb_step(ramp,
-                             resolve_key(keys.get(kb_pos)),
-                             resolve_key(keys.get(kb_neg)),
+                             None if self.kb_blocked else resolve_key(keys.get(kb_pos)),
+                             None if self.kb_blocked else resolve_key(keys.get(kb_neg)),
                              KB_RATE / 127.0)
         return ramp, ramp
 
@@ -148,5 +154,7 @@ class InputMapper:
         if self.joystick is not None and action in buttons:
             if self._gp_btn(buttons[action]):
                 return True
+        if self.kb_blocked:
+            return False
         k = resolve_key(self.mode.get("keys", {}).get(action, ""))
         return bool(k is not None and dpg.is_key_down(k))

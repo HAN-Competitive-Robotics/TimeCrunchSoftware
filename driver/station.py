@@ -32,7 +32,7 @@ from calibrate   import calibrate
 LEFT_W  = 400         # fixed width of the safety/drive column; the rest stretches
 BANNER_H = 96
 BAR_W   = 68
-BAR_H   = 180
+BAR_H   = 172
 BAR_CY  = BAR_H // 2
 
 PW_MODAL_W = 300      # password modal content width
@@ -204,6 +204,44 @@ def trim_packet(trim_l: int, trim_r: int) -> bytes:
                        TRIM_MAGIC, OPCODE_SET_TRIM)
 
 
+def trigger_killswitch(link: SerialLink) -> None:
+    """Latch the killswitch and burst the failsafe byte at the robot.
+
+    One shared path for the physical key, the gamepad button, and the UI
+    button, so they cannot drift apart. Idempotent: once latched, later
+    calls do nothing. The per-frame packet keeps carrying failsafe 255 for
+    as long as the latch stands; the burst covers the moment of activation.
+    """
+    if _gs["killswitch"]:
+        return
+    _gs["killswitch"] = True
+    _log_add("KILLSWITCH - robot latched until power cycle")
+    if link.ensure_connected():
+        for _ in range(5):
+            link.send(b"7f7f7fff\n")
+    else:
+        _log_add("WARNING: killswitch sent but serial not connected")
+
+
+_TEXT_INPUTS = ("inp_wpn_pw", "inp_trim_L", "inp_trim_R",
+                "inp_mult_L", "inp_mult_R")
+
+
+def keyboard_captured() -> bool:
+    """True while typing belongs to a text field rather than the robot.
+
+    The keyboard is read by global polling, so without this gate, typing the
+    weapon password would arm, steer, and even killswitch the robot: password
+    characters are also control keys. While the unlock dialog is open or any
+    number box is being edited, every keyboard binding reads as released.
+    The gamepad and the on-screen buttons stay live throughout, so the
+    killswitch is never out of reach.
+    """
+    if dpg.is_item_shown("wpn_pw_modal"):
+        return True
+    return any(dpg.is_item_active(t) for t in _TEXT_INPUTS)
+
+
 # ─── Indicator and button themes ─────────────────────────────────────────────
 
 def _make_ind_themes() -> None:
@@ -219,6 +257,8 @@ def _make_ind_themes() -> None:
         "arm_live":    ((178, 108, 20),  (255, 245, 225), (200, 126, 30)),
         "lock_locked": ((58,  74,  106), (216, 228, 248), (70,  90,  128)),
         "lock_live":   ((172, 62,  34),  (255, 224, 210), (196, 76,  44)),
+        "kill_ready":  ((152, 32,  32),  (255, 214, 212), (178, 40,  40)),
+        "kill_reset":  ((128, 92,  18),  (255, 240, 200), (148, 108, 24)),
     }
     for name, spec in specs.items():
         bg, fg = spec[0], spec[1]
@@ -431,6 +471,19 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _gs["armed"] = not _gs["armed"]
         _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
+    def cb_kill_click(s_, a, u):
+        trigger_killswitch(link)
+
+    def cb_kill_reset(s_, a, u):
+        """Manual by design. The link is one-way, so the station cannot see
+        the robot power cycle; automatic recovery would be a guess. Reset
+        restarts from the safest state: disarmed, weapon locked."""
+        _gs["killswitch"] = False
+        _gs["armed"] = False
+        _gs["weapon_locked"] = True
+        _gs["weapon_state"] = "safe"
+        _log_add("Killswitch reset - disarmed, weapon locked")
+
     def cb_save_trim(s_, a, u):
         """Push trim to the robot, which stores it in NVS and applies it.
 
@@ -558,9 +611,14 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             with dpg.child_window(width=LEFT_W, border=True, tag="w_left"):
                 _section("SAFETY")
                 dpg.add_button(label="ARM", tag="ind_armed",
-                               height=54, width=-1, callback=cb_arm_click)
+                               height=50, width=-1, callback=cb_arm_click)
                 dpg.add_button(label="UNLOCK WEAPON", tag="ind_wpn_lock",
-                               height=40, width=-1, callback=cb_lock_click)
+                               height=36, width=-1, callback=cb_lock_click)
+                dpg.add_button(label="KILL ROBOT", tag="btn_kill",
+                               height=36, width=-1, callback=cb_kill_click)
+                dpg.add_button(label="RESET KILLSWITCH", tag="btn_kill_reset",
+                               height=36, width=-1, show=False,
+                               callback=cb_kill_reset)
                 with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchSame,
                                pad_outerX=False, borders_outerH=False,
                                borders_outerV=False, borders_innerV=False,
@@ -571,13 +629,13 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                     with dpg.table_row():
                         with dpg.table_cell():
                             dpg.add_button(label="WEAPON SAFE", tag="ind_weapon",
-                                           height=28, width=-1)
+                                           height=26, width=-1)
                         with dpg.table_cell():
                             dpg.add_button(label="DRIVE NORMAL", tag="ind_drive",
-                                           height=28, width=-1)
+                                           height=26, width=-1)
                         with dpg.table_cell():
                             dpg.add_button(label="KILL OFF", tag="ind_kill",
-                                           height=28, width=-1)
+                                           height=26, width=-1)
 
                 _section("DRIVE")
                 dpg.add_combo(tag="cmb_mode", width=-1, items=MODE_NAMES,
@@ -647,6 +705,8 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
         _set_ind("ind_armed",    "ARM",           "arm_ready")
         _set_ind("ind_wpn_lock", "UNLOCK WEAPON", "lock_locked")
+        _set_ind("btn_kill",     "KILL ROBOT",    "kill_ready")
+        _set_ind("btn_kill_reset", "RESET KILLSWITCH", "kill_reset")
         _set_ind("ind_weapon",   "WEAPON SAFE",   "panel")
         _set_ind("ind_drive",    "DRIVE NORMAL",  "panel")
         _set_ind("ind_kill",     "KILL OFF",      "panel")
@@ -670,6 +730,15 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         with dpg.tooltip("ind_kill"):
             dpg.add_text("Sends failsafe byte=255.")
             dpg.add_text("Robot enters deep sleep - power cycle to recover.")
+        with dpg.tooltip("btn_kill"):
+            dpg.add_text("Latches the killswitch: failsafe byte 255 goes out")
+            dpg.add_text("immediately and with every packet after. The robot")
+            dpg.add_text("deep sleeps until it is power cycled.")
+        with dpg.tooltip("btn_kill_reset"):
+            dpg.add_text("Clears the STATION side of the killswitch, after you")
+            dpg.add_text("have power cycled the robot. The link is one-way, so")
+            dpg.add_text("the station cannot detect the power cycle itself.")
+            dpg.add_text("You come back disarmed with the weapon locked.")
 
     # autosize rather than a fixed height: a hardcoded height that is even
     # slightly too small makes DPG add a scrollbar and clip the buttons, which
@@ -742,7 +811,8 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     mode = DRIVE_MODES[_mode_idx]
     keys = mode["keys"]
     btns = mode["buttons"]
-    arm_key = key_display(keys.get("arm", ""))
+    arm_key  = key_display(keys.get("arm", ""))
+    kill_key = key_display(keys.get("killswitch", ""))
 
     # Buttons carry the ACTION a click performs; the banner carries the state.
     _set_ind("ind_armed",
@@ -751,6 +821,9 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     _set_ind("ind_wpn_lock",
              "UNLOCK WEAPON" if locked else "LOCK WEAPON",
              "lock_locked"   if locked else "lock_live")
+    _set_ind("btn_kill", f"KILL ROBOT  [{kill_key}]", "kill_ready")
+    dpg.configure_item("btn_kill", show=not kill)
+    dpg.configure_item("btn_kill_reset", show=kill)
     _set_ind("ind_weapon",
              {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK", "idle_rev": "WEAPON REV"}[ws],
              {"safe": "panel",       "idle": "warn",        "attack": "attack",         "idle_rev": "warn"}[ws])
@@ -882,6 +955,8 @@ def main() -> None:
             if msg:
                 _log_add(msg)
 
+        mapper.kb_blocked = keyboard_captured()
+
         inv_raw  = mapper.read_button("drive_invert")
         kill_raw = mapper.read_button("killswitch")
         arm_raw  = mapper.read_button("arm")
@@ -901,15 +976,8 @@ def main() -> None:
             invert=_gs["drive_inverted"],
         )
 
-        if kill_raw and not _gs["killswitch"]:
-            _gs["killswitch"] = True
-            _log_add("KILLSWITCH - robot latched until power cycle")
-            burst = b"7f7f7fff\n"
-            if link.ensure_connected():
-                for _ in range(5):
-                    link.send(burst)
-            else:
-                _log_add("WARNING: killswitch sent but serial not connected")
+        if kill_raw:
+            trigger_killswitch(link)
 
         if arm_raw and not prev_arm:
             _gs["armed"] = not _gs["armed"]

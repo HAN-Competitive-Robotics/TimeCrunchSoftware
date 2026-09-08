@@ -30,8 +30,9 @@ python station.py --set-weapon-password
 - **Banner** (top): the one place that states the overall state. Grey
   DISARMED, green ARMED, amber ARMED - WEAPON LIVE, red KILLSWITCH LATCHED.
 - **Left card**: the controls used mid-match. ARM/DISARM, the weapon
-  lock button (unlocking asks for the password), the weapon/drive/kill
-  indicators, drive mode dropdown, and the live motor output bars.
+  lock button (unlocking asks for the password), KILL ROBOT, the
+  weapon/drive/kill indicators, drive mode dropdown, and the live motor
+  output bars.
 - **Right card**: setup and telemetry. Trim and output multipliers, the
   keybind reference (collapsed by default), and the event log, which grows
   with the window.
@@ -64,6 +65,22 @@ Shared controls in every mode:
 The weapon only responds while the robot is armed, the killswitch is clear,
 and the weapon is unlocked. It re-locks automatically on disarm and on
 killswitch.
+
+Keyboard bindings are ignored while the unlock dialog is open or a number
+box is being edited, so typing a password cannot arm, steer, or killswitch
+the robot. The gamepad and the on-screen buttons stay live throughout.
+
+## Killswitch and recovery
+
+KILL ROBOT (click, key F, or gamepad B1) latches the killswitch: the
+failsafe byte goes to 255 immediately and with every packet after, and the
+robot deep sleeps until it is power cycled.
+
+The station side stays latched on purpose. The radio link is one-way, so
+the station cannot see the robot power cycle; automatic recovery would be a
+guess. Once the robot has been power cycled, click RESET KILLSWITCH, which
+replaces the kill button while latched. Reset returns the station to the
+safest state: disarmed, weapon locked.
 
 ## Changing controls
 
