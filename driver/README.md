@@ -64,7 +64,9 @@ Shared controls in every mode:
 
 The weapon only responds while the robot is armed, the killswitch is clear,
 and the weapon is unlocked. It re-locks automatically on disarm and on
-killswitch.
+killswitch. Unlock is only offered while armed (an unlock done disarmed
+would be undone within a frame), the button pulses orange while the weapon
+is live, and clicking it again re-locks instantly with no password.
 
 Keyboard bindings are ignored while the unlock dialog is open or a number
 box is being edited, so typing a password cannot arm, steer, or killswitch

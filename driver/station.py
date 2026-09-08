@@ -257,6 +257,7 @@ def _make_ind_themes() -> None:
         "arm_live":    ((178, 108, 20),  (255, 245, 225), (200, 126, 30)),
         "lock_locked": ((58,  74,  106), (216, 228, 248), (70,  90,  128)),
         "lock_live":   ((172, 62,  34),  (255, 224, 210), (196, 76,  44)),
+        "lock_hot":    ((216, 84,  46),  (255, 238, 228), (216, 84,  46)),
         "kill_ready":  ((152, 32,  32),  (255, 214, 212), (178, 40,  40)),
         "kill_reset":  ((128, 92,  18),  (255, 240, 200), (148, 108, 24)),
     }
@@ -440,6 +441,12 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             _gs["weapon_locked"] = True
             _gs["weapon_state"] = "safe"
             _log_add("Weapon LOCKED")
+            return
+        if _relock_on_disarm and not _gs["armed"]:
+            # An unlock done while disarmed is undone within a frame by the
+            # relock-on-disarm rule, which looks like the button silently
+            # doing nothing. Refuse with an explanation instead.
+            _log_add("Arm first - the weapon stays locked while disarmed")
             return
         dpg.set_value("inp_wpn_pw", "")
         dpg.set_value("txt_wpn_pw_err", " ")
@@ -722,6 +729,9 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             dpg.add_text("Atk/Rev key: hold in IDLE=attack, hold in SAFE=reverse spin.")
         with dpg.tooltip("ind_wpn_lock"):
             dpg.add_text("Unlocking asks for the weapon password.")
+            dpg.add_text("Arm first: unlock is refused while disarmed.")
+            dpg.add_text("While unlocked the button pulses orange; clicking")
+            dpg.add_text("it again re-locks instantly, no password.")
             dpg.add_text("While LOCKED the weapon is forced safe no matter")
             dpg.add_text("what the gamepad or keyboard does.")
             dpg.add_text("Re-locks automatically on disarm and on killswitch.")
@@ -818,9 +828,13 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     _set_ind("ind_armed",
              f"DISARM  [{arm_key}]" if armed else f"ARM  [{arm_key}]",
              "arm_live"             if armed else "arm_ready")
-    _set_ind("ind_wpn_lock",
-             "UNLOCK WEAPON" if locked else "LOCK WEAPON",
-             "lock_locked"   if locked else "lock_live")
+    if locked:
+        _set_ind("ind_wpn_lock", "UNLOCK WEAPON", "lock_locked")
+    else:
+        # Pulse at 1 Hz while the weapon is live, so the unlocked state is
+        # visible from the corner of an eye. A click re-locks instantly.
+        pulse = "lock_hot" if int(time.time() * 2) % 2 else "lock_live"
+        _set_ind("ind_wpn_lock", "LOCK WEAPON", pulse)
     _set_ind("btn_kill", f"KILL ROBOT  [{kill_key}]", "kill_ready")
     dpg.configure_item("btn_kill", show=not kill)
     dpg.configure_item("btn_kill_reset", show=kill)
