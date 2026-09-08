@@ -77,6 +77,19 @@ def find_esp32_port():
     return None
 
 
+def _flash_baud(override=None):
+    """Flash baud rate.
+
+    esptool defaults to 460800, which is fine over a directly attached USB
+    serial port. Under WSL the bytes cross a usbipd USB/IP tunnel, and at that
+    rate the transfer stalls partway with "Packet content transfer stopped".
+    115200 is slower but survives the tunnel, so default to it there.
+    """
+    if override:
+        return override
+    return 115200 if wsl_common.is_wsl() else 460800
+
+
 def _no_port_error():
     msg = "No ESP32 port found. Plug it in or pass the port manually."
     if wsl_common.is_wsl():
@@ -183,10 +196,14 @@ def _find_idf_py(idf_path):
     error("idf.py not found in PATH or IDF_PATH/tools/.")
 
 
-def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True, monitor=True):
+def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True,
+             monitor=True, baud=None):
     """Run idf.py flash (and optionally monitor) for any ESP-IDF project."""
     env = os.environ.copy()
     env["IDF_PATH"] = str(idf_path)
+    baud = _flash_baud(baud)
+    if flash:
+        info(f"Flashing at {baud} baud")
 
     if platform.system() == "Windows":
         idf_py = _find_idf_py(idf_path)
@@ -194,7 +211,7 @@ def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True,
         if extra_cmake:
             cmd += extra_cmake.split()
         if flash:
-            cmd += ["-p", port, "flash"]
+            cmd += ["-p", port, "-b", str(baud), "flash"]
         subprocess.run(cmd, cwd=project_dir, env=env, check=True)
         if monitor:
             info("Opening monitor (Ctrl+] to exit)...")
@@ -205,7 +222,7 @@ def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True,
         if flash:
             shell_cmd = (
                 f'source "{idf_path}/export.sh" && '
-                f'idf.py -B {build_dir}{cmake_args} -p "{port}" flash'
+                f'idf.py -B {build_dir}{cmake_args} -p "{port}" -b {baud} flash'
             )
             subprocess.run(["bash", "-c", shell_cmd], cwd=project_dir, env=env, check=True)
         if monitor:
@@ -214,10 +231,10 @@ def _run_idf(project_dir, idf_path, build_dir, port, extra_cmake="", flash=True,
             subprocess.run(["bash", "-c", shell_cmd], cwd=project_dir, env=env, check=True)
 
 
-def flash_robot(port, monitor=True):
+def flash_robot(port, monitor=True, baud=None):
     idf_path = _idf_path()
     info(f"Flashing robot (ESP32) on {port}...")
-    _run_idf(ROBOT_DIR, idf_path, "build", port, monitor=monitor)
+    _run_idf(ROBOT_DIR, idf_path, "build", port, monitor=monitor, baud=baud)
 
 
 def build_robot_only():
@@ -357,6 +374,9 @@ def main():
     parser.add_argument("--weapon-calibrate",  action="store_true", help="Flash weapon-motor calibration mode")
     parser.add_argument("--weapon-test",       action="store_true", help="Flash weapon-motor test mode")
     parser.add_argument("--no-monitor",        action="store_true", help="Skip opening monitor after flash")
+    parser.add_argument("--baud", type=int, default=None,
+                        help="Flash baud rate. Defaults to 115200 under WSL, where "
+                             "usbipd stalls at higher rates, and 460800 elsewhere.")
     parser.add_argument("--find-ports",        action="store_true", help="List detected serial ports")
     parser.add_argument("--build-robot",       action="store_true", help="Build ESP32 robot only (no flash)")
     args = parser.parse_args()
@@ -397,15 +417,15 @@ def main():
 
     if args.robot:
         info(f"Using ESP32 port: {port}")
-        flash_robot(port, monitor=monitor)
+        flash_robot(port, monitor=monitor, baud=args.baud)
         return
 
     # --both or bare port
     info(f"Using ESP32 port: {port}")
-    flash_robot(port, monitor=False)
+    flash_robot(port, monitor=False, baud=args.baud)
     flash_dongle()
     if monitor:
-        flash_robot(port, monitor=True)
+        flash_robot(port, monitor=True, baud=args.baud)
 
 
 if __name__ == "__main__":
