@@ -15,7 +15,9 @@
  * The fault path still exists and still works when this is 1; this flag is for
  * the case where there is no sensor to fault in the first place, so the robot
  * should not spend WEAPON_FEEDBACK_FAULT_MS pretending it might get RPM. */
+#ifndef WEAPON_HALL_SENSOR_FITTED
 #define WEAPON_HALL_SENSOR_FITTED  0
+#endif
 
 /* --------------------------------------------------------------------------
  * Motor direction

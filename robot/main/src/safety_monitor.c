@@ -55,6 +55,17 @@ static void update_feedback_fault(TickType_t now)
     static TickType_t commanded_since = 0;
     static bool       was_commanded   = false;
 
+    /* With no sensor fitted there is nothing to fault against: the controller
+     * is unconditionally open-loop, and hall_sensor_signal_fresh() is always
+     * false, so leaving this enabled would raise a feedback fault on every
+     * weapon spin. robot_config.h says as much next to the flag. */
+    if (!WEAPON_HALL_SENSOR_FITTED) {
+        was_commanded = false;
+        atomic_store_explicit(&s_feedback_fault, false, memory_order_relaxed);
+        (void)now;
+        return;
+    }
+
     float output = weapon_controller_get_output();
     bool  driven = output >= WEAPON_FEEDBACK_MIN_OUTPUT;
 

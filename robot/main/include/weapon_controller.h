@@ -31,7 +31,9 @@
 // the measured figure is inside the limit with margin. Then re-check on a
 // fresh pack, because a fully charged battery spins faster at the same
 // throttle percentage.
+#ifndef WEAPON_MAX_OUTPUT_PCT
 #define WEAPON_MAX_OUTPUT_PCT   60.0f
+#endif
 
 // ---------------------------------------------------------------------------
 // Open-loop fallback levels
