@@ -64,6 +64,24 @@
 #define PACKET_OPCODE_SET_TRIM  1
 #define TRIM_COMMAND_MAGIC      0x5A
 
+/*
+ * PACKET_OPCODE_WEAPON_TEST reinterprets the packet as a wireless bench test:
+ *
+ *   byte 0 = 127 + signed throttle percent  (-100..+100; sign = direction)
+ *   byte 1 = 0
+ *   byte 2 = WEAPON_TEST_MAGIC
+ *   byte 3 = PACKET_OPCODE_WEAPON_TEST
+ *
+ * Wheels are forced neutral on this path. The station only emits these packets
+ * while its 5-second deadman is held, so the weapon stops the moment the
+ * operator stops pressing, the link drops, or any normal packet arrives. The
+ * killswitch (byte 3 > 127) still overrides everything, and
+ * WEAPON_MAX_OUTPUT_PCT still clamps the magnitude. The magic in byte 2 means
+ * a corrupted drive packet cannot be mistaken for a spin-up command.
+ */
+#define PACKET_OPCODE_WEAPON_TEST  2
+#define WEAPON_TEST_MAGIC          0xA7
+
 /* --------------------------------------------------------------------------
  * Link loss
  * --------------------------------------------------------------------------

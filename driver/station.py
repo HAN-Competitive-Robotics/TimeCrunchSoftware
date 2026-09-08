@@ -129,6 +129,8 @@ _BANNER: dict[str, int] = {}
 _banner_shown: tuple | None = None
 _trim: dict = {"L": 0, "R": 0}    # raw offset −127…+127
 _mult: dict = {"L": 1.0, "R": 1.0}  # output multiplier 0.0…5.0
+_pw_purpose: str = "unlock"       # what the password modal is gating right now
+_test: dict = {"enabled": False, "mag": 40, "dir": 1, "deadline": 0.0}
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -149,9 +151,17 @@ def _log_color(line: str, newest: bool) -> list:
 
 # Must match robot/main/include/robot_config.h. The failsafe byte doubles as
 # an opcode so commands fit the existing 4-byte payload.
-OPCODE_DRIVE    = 0
-OPCODE_SET_TRIM = 1
-TRIM_MAGIC      = 0x5A
+OPCODE_DRIVE       = 0
+OPCODE_SET_TRIM    = 1
+OPCODE_WEAPON_TEST = 2
+TRIM_MAGIC         = 0x5A
+WEAPON_TEST_MAGIC  = 0xA7
+
+# Mirror of WEAPON_MAX_OUTPUT_PCT in robot/main/include/weapon_controller.h.
+# The robot clamps to its own ceiling regardless, so this only keeps the UI
+# from offering a number the firmware will silently cut down.
+WPN_TEST_MAX   = 60
+TEST_DEADMAN_S = 5.0
 
 
 def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
@@ -204,6 +214,22 @@ def trim_packet(trim_l: int, trim_r: int) -> bytes:
                        TRIM_MAGIC, OPCODE_SET_TRIM)
 
 
+def weapon_test_packet(signed_pct: int) -> bytes:
+    """Encode a wireless weapon-test command. Percent is offset by 127 (sign =
+    direction), byte 2 carries the magic, byte 3 the opcode. The robot forces
+    the wheels neutral and drives the weapon open-loop at this percent."""
+    p = max(-100, min(100, signed_pct))
+    return _hex_packet(max(0, min(255, 127 + p)), 0, WEAPON_TEST_MAGIC, OPCODE_WEAPON_TEST)
+
+
+def test_should_spin(enabled: bool, now: float, deadline: float,
+                     killswitch_latched: bool, connected: bool) -> bool:
+    """The weapon test spins only while enabled, connected, not killed, and
+    inside the 5-second deadman window. Every one of these dropping stops it:
+    the deadman lapsing, the link dropping, or the killswitch latching."""
+    return bool(enabled and connected and not killswitch_latched and now < deadline)
+
+
 def trigger_killswitch(link: SerialLink) -> None:
     """Latch the killswitch and burst the failsafe byte at the robot.
 
@@ -215,6 +241,7 @@ def trigger_killswitch(link: SerialLink) -> None:
     if _gs["killswitch"]:
         return
     _gs["killswitch"] = True
+    _test["enabled"] = False          # a kill also ends any running bench test
     _log_add("KILLSWITCH - robot latched until power cycle")
     if link.ensure_connected():
         for _ in range(5):
@@ -258,6 +285,9 @@ def _make_ind_themes() -> None:
         "lock_locked": ((58,  74,  106), (216, 228, 248), (70,  90,  128)),
         "lock_live":   ((172, 62,  34),  (255, 224, 210), (196, 76,  44)),
         "lock_hot":    ((216, 84,  46),  (255, 238, 228), (216, 84,  46)),
+        "test_ready":  ((150, 70,  20),  (255, 236, 210), (170, 84,  26)),
+        "test_live":   ((196, 96,  26),  (255, 244, 230), (196, 96,  26)),
+        "test_hot":    ((230, 120, 40),  (255, 250, 240), (230, 120, 40)),
         "kill_ready":  ((152, 32,  32),  (255, 214, 212), (178, 40,  40)),
         "kill_reset":  ((128, 92,  18),  (255, 240, 200), (148, 108, 24)),
     }
@@ -283,6 +313,7 @@ def _make_banner_themes() -> None:
         "disarmed": (44,  48,  60),
         "armed":    (24,  118, 62),
         "live":     (164, 106, 16),
+        "test":     (176, 92,  20),
         "kill":     (158, 34,  30),
     }.items():
         with dpg.theme() as t:
@@ -437,10 +468,14 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
     def cb_lock_click(s_, a, u):
         """Locking never needs a password. Unlocking always does."""
+        global _pw_purpose
         if not _gs["weapon_locked"]:
             _gs["weapon_locked"] = True
             _gs["weapon_state"] = "safe"
             _log_add("Weapon LOCKED")
+            return
+        if _test["enabled"]:
+            _log_add("Stop the weapon test before unlocking for drive")
             return
         if _relock_on_disarm and not _gs["armed"]:
             # An unlock done while disarmed is undone within a frame by the
@@ -448,6 +483,9 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             # doing nothing. Refuse with an explanation instead.
             _log_add("Arm first - the weapon stays locked while disarmed")
             return
+        _pw_purpose = "unlock"
+        dpg.configure_item("wpn_pw_modal", label="Unlock weapon")
+        dpg.set_value("txt_pw_prompt", "Enter the weapon password.")
         dpg.set_value("inp_wpn_pw", "")
         dpg.set_value("txt_wpn_pw_err", " ")
         # Centre on the viewport. The modal is autosized so its exact height is
@@ -465,16 +503,30 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         if not password_matches(entered, _weapon_pw_hash):
             dpg.set_value("txt_wpn_pw_err", "Wrong password")
             dpg.set_value("inp_wpn_pw", "")
-            _log_add("Weapon unlock refused: wrong password")
+            _log_add("Password refused: wrong password")
             return
-        _gs["weapon_locked"] = False
         dpg.configure_item("wpn_pw_modal", show=False)
-        _log_add("Weapon UNLOCKED")
+        if _pw_purpose == "test":
+            # Bench test is standalone: come up disarmed with the weapon locked
+            # so the normal weapon path stays off and only the test path drives.
+            _test["enabled"]  = True
+            _test["deadline"] = time.time() + TEST_DEADMAN_S
+            _gs["armed"]         = False
+            _gs["weapon_locked"] = True
+            _gs["weapon_state"]  = "safe"
+            _log_add(f"Weapon TEST enabled: {_test['mag']}% "
+                     f"{'FWD' if _test['dir'] > 0 else 'REV'} - re-press within 5 s")
+        else:
+            _gs["weapon_locked"] = False
+            _log_add("Weapon UNLOCKED")
 
     def cb_lock_cancel(s_, a, u):
         dpg.configure_item("wpn_pw_modal", show=False)
 
     def cb_arm_click(s, a, u):
+        if _test["enabled"]:
+            _log_add("Stop the weapon test before arming")
+            return
         _gs["armed"] = not _gs["armed"]
         _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
@@ -489,7 +541,49 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _gs["armed"] = False
         _gs["weapon_locked"] = True
         _gs["weapon_state"] = "safe"
+        _test["enabled"] = False
         _log_add("Killswitch reset - disarmed, weapon locked")
+
+    def cb_test_mag(s, val, u):
+        _test["mag"] = max(0, min(WPN_TEST_MAX, int(val)))
+        dpg.set_value("sl_test_mag", _test["mag"])
+        dpg.set_value("inp_test_mag", _test["mag"])
+
+    def cb_test_mag_inp(s, val, u): cb_test_mag(s, val, u)
+
+    def cb_test_dir(s, val, u):
+        _test["dir"] = 1 if val == "Forward" else -1
+
+    def cb_test_spin(s_, a, u):
+        """The deadman press. First press asks for the password; each press
+        after that extends the 5-second window."""
+        global _pw_purpose
+        if _gs["killswitch"]:
+            _log_add("Reset the killswitch before testing the weapon")
+            return
+        if not link.ensure_connected():
+            _log_add("WARNING: weapon test needs the serial link connected")
+            return
+        if _test["enabled"]:
+            _test["deadline"] = time.time() + TEST_DEADMAN_S
+            return
+        _pw_purpose = "test"
+        dpg.configure_item("wpn_pw_modal", label="Enable weapon test")
+        dpg.set_value("txt_pw_prompt",
+                      "Enter the weapon password to enable the bench test.")
+        dpg.set_value("inp_wpn_pw", "")
+        dpg.set_value("txt_wpn_pw_err", " ")
+        vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
+        dpg.configure_item("wpn_pw_modal",
+                           pos=[max(0, vw // 2 - PW_MODAL_W // 2 - 20),
+                                max(0, vh // 2 - 90)],
+                           show=True)
+        dpg.focus_item("inp_wpn_pw")
+
+    def cb_test_stop(s_, a, u):
+        if _test["enabled"]:
+            _test["enabled"] = False
+            _log_add("Weapon test stopped")
 
     def cb_save_trim(s_, a, u):
         """Push trim to the robot, which stores it in NVS and applies it.
@@ -684,6 +778,41 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                 _mult_row("L", "L", cb_mult_L, cb_mult_L_inc, cb_mult_L_dec, cb_mult_L_inp)
                 _mult_row("R", "R", cb_mult_R, cb_mult_R_inc, cb_mult_R_dec, cb_mult_R_inp)
 
+                with dpg.collapsing_header(label="WEAPON TEST (BENCH)",
+                                           tag="hdr_wtest", default_open=False):
+                    wt = dpg.add_text(
+                        "Spins the weapon at a set % with the wheels held "
+                        "neutral. Hold the deadman: SPIN must be re-pressed "
+                        "every 5 s or it stops. Killswitch stops it.",
+                        color=C_DIM[:3], wrap=0)
+                    _use_font(wt, F_SMALL)
+                    with dpg.group(horizontal=True):
+                        mt = dpg.add_text("%", color=C_DIM[:3])
+                        _use_font(mt, F_SMALL)
+                        dpg.add_slider_int(tag="sl_test_mag", min_value=0,
+                                           max_value=WPN_TEST_MAX, default_value=40,
+                                           width=150, format="%d", callback=cb_test_mag)
+                        dpg.add_input_int(tag="inp_test_mag", default_value=40,
+                                          min_value=0, max_value=WPN_TEST_MAX,
+                                          min_clamped=True, max_clamped=True,
+                                          width=64, step=0, on_enter=True,
+                                          callback=cb_test_mag_inp)
+                        dpg.add_radio_button(("Forward", "Reverse"), tag="rad_test_dir",
+                                             horizontal=True, callback=cb_test_dir)
+                    dpg.add_button(label="SPIN 40% FWD", tag="btn_test_spin",
+                                   height=40, width=-1, callback=cb_test_spin)
+                    dpg.add_button(label="STOP TEST", tag="btn_test_stop",
+                                   height=30, width=-1, callback=cb_test_stop)
+                    ts = dpg.add_text("", tag="txt_test_status", color=C_DIM[:3], wrap=0)
+                    _use_font(ts, F_SMALL)
+                with dpg.theme() as t_wt:
+                    with dpg.theme_component(dpg.mvCollapsingHeader):
+                        dpg.add_theme_color(dpg.mvThemeCol_Header,        (58, 40, 26))
+                        dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (72, 50, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,  (72, 50, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text,          C_WARN[:3])
+                dpg.bind_item_theme("hdr_wtest", t_wt)
+
                 dpg.add_spacer(height=6)
                 # Collapsed by default: static reference the driver opens when
                 # needed, instead of permanently squeezing the event log.
@@ -714,6 +843,8 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _set_ind("ind_wpn_lock", "UNLOCK WEAPON", "lock_locked")
         _set_ind("btn_kill",     "KILL ROBOT",    "kill_ready")
         _set_ind("btn_kill_reset", "RESET KILLSWITCH", "kill_reset")
+        _set_ind("btn_test_spin", "SPIN 40% FWD", "test_ready")
+        dpg.set_value("rad_test_dir", "Forward")
         _set_ind("ind_weapon",   "WEAPON SAFE",   "panel")
         _set_ind("ind_drive",    "DRIVE NORMAL",  "panel")
         _set_ind("ind_kill",     "KILL OFF",      "panel")
@@ -757,7 +888,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
     with dpg.window(tag="wpn_pw_modal", label="Unlock weapon", modal=True,
                     show=False, no_resize=True, no_scrollbar=True,
                     no_collapse=True, autosize=True):
-        dpg.add_text("Enter the weapon password.")
+        dpg.add_text("Enter the weapon password.", tag="txt_pw_prompt")
         dpg.add_spacer(height=4)
         dpg.add_input_text(tag="inp_wpn_pw", password=True, width=PW_MODAL_W,
                            on_enter=True, callback=cb_lock_confirm)
@@ -848,9 +979,29 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
              "KILLSWITCH!"    if kill else "KILL OFF",
              "danger"         if kill else "panel")
 
+    now = time.time()
+    if _test["enabled"]:
+        remaining = max(0.0, _test["deadline"] - now)
+        dname = "FWD" if _test["dir"] > 0 else "REV"
+        pulse = "test_hot" if int(now * 2) % 2 else "test_live"
+        _set_ind("btn_test_spin", f"KEEP SPINNING  {remaining:0.1f}s", pulse)
+        dpg.set_value("txt_test_status",
+                      f"LIVE: {_test['mag']}% {dname} - re-press within {remaining:0.1f}s")
+        dpg.configure_item("txt_test_status", color=C_WARN[:3])
+    else:
+        dname = "FWD" if _test["dir"] > 0 else "REV"
+        _set_ind("btn_test_spin", f"SPIN {_test['mag']}% {dname}", "test_ready")
+        dpg.set_value("txt_test_status",
+                      "Idle. SPIN needs the password, then a re-press every 5 s.")
+        dpg.configure_item("txt_test_status", color=C_DIM[:3])
+
     if kill:
         _set_banner("KILLSWITCH LATCHED",
                     "failsafe sent - power cycle the robot to recover", "kill")
+    elif _test["enabled"]:
+        _set_banner(f"WEAPON TEST  {_test['mag']}% {'FWD' if _test['dir'] > 0 else 'REV'}",
+                    f"bench test live - re-press SPIN within {max(0.0, _test['deadline'] - now):0.1f}s",
+                    "test")
     elif armed and not locked:
         _set_banner("ARMED - WEAPON LIVE", "weapon controls enabled", "live")
     elif armed:
@@ -993,7 +1144,15 @@ def main() -> None:
         if kill_raw:
             trigger_killswitch(link)
 
-        if arm_raw and not prev_arm:
+        if _test["enabled"] and now >= _test["deadline"]:
+            _test["enabled"] = False
+            _log_add("Weapon test deadman expired - weapon off")
+        if _gs["killswitch"]:
+            _test["enabled"] = False
+        test_spinning = test_should_spin(_test["enabled"], now, _test["deadline"],
+                                         _gs["killswitch"], link.state == "connected")
+
+        if arm_raw and not prev_arm and not _test["enabled"]:
             _gs["armed"] = not _gs["armed"]
             _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
@@ -1024,7 +1183,10 @@ def main() -> None:
         prev_wpn     = wpn_btn
 
         if now - last_send >= 1.0 / rate_hz:
-            pkt = _hex_packet(motor_l, motor_r, weapon_byte, fs_byte)
+            if test_spinning:
+                pkt = weapon_test_packet(_test["mag"] * _test["dir"])
+            else:
+                pkt = _hex_packet(motor_l, motor_r, weapon_byte, fs_byte)
             was_searching = link.state == "searching"
             if link.ensure_connected():
                 if was_searching:

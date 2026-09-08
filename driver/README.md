@@ -84,6 +84,27 @@ guess. Once the robot has been power cycled, click RESET KILLSWITCH, which
 replaces the kill button while latched. Reset returns the station to the
 safest state: disarmed, weapon locked.
 
+## Weapon bench test
+
+The right card has a collapsible **WEAPON TEST (BENCH)** section: a wireless
+version of the USB weapon-motor test, so you can spin the weapon up at a set
+percentage over the radio with all the normal failsafes in place.
+
+1. Open the section and set the percentage (capped at the firmware ceiling) and
+   direction.
+2. Press **SPIN** - the first press asks for the weapon password.
+3. The weapon spins at that percent with the **wheels forced neutral**, so the
+   bot cannot drive off the bench. It ignores the ARM button; arming is refused
+   while a test is running.
+4. **SPIN is a deadman: re-press it within 5 seconds or the weapon stops.** The
+   button shows a live countdown. STOP ends it at once.
+
+Anything that should stop it does: the deadman lapsing, the link dropping, the
+STOP button, or the killswitch (which also latches deep sleep as usual). The
+robot clamps the percentage to `WEAPON_MAX_OUTPUT_PCT` regardless of what the
+station sends, and a throttle percentage is not a kinetic-energy figure - see
+`docs/hardware/weapon-limits.md` before trusting any particular number.
+
 ## Changing controls
 
 Bindings live in `drive_modes.py`. Edit that file and restart; there is no

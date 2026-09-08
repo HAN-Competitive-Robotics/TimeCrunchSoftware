@@ -92,6 +92,13 @@ void weapon_controller_reset(void);
 // Run one control step and drive the weapon ESC. Call at 100 Hz.
 void weapon_controller_update(void);
 
+// Wireless bench test: command a direct open-loop throttle percentage rather
+// than a speed. |pct| is clamped by WEAPON_MAX_OUTPUT_PCT and the actuator
+// range; the sign selects direction. No RPM loop runs (the operator is setting
+// a throttle, not a target speed), and the integrator is cleared so a later
+// return to closed-loop control does not resume against a stale integral.
+void weapon_controller_test(int pct);
+
 // Magnitude of the most recent commanded output, 0..100. Used by the safety
 // monitor to decide whether the weapon is being driven hard enough that the
 // Hall sensor ought to be reporting rotation.

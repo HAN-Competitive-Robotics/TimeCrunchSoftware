@@ -85,6 +85,16 @@ static void publish(float target, float rpm, float error, float output, bool fee
     s_last_output            = output;
 }
 
+void weapon_controller_test(int pct)
+{
+    int8_t dir = (pct < 0) ? -1 : 1;
+    float  mag = clamp_output((float)(pct < 0 ? -pct : pct));
+    s_integral  = 0.0f;
+    s_last_time = esp_timer_get_time();
+    publish(0.0f, 0.0f, 0.0f, mag, false);
+    motor_set_throttle(MOTOR_WEAPON, (int)mag * dir);
+}
+
 void weapon_controller_update(void)
 {
     int64_t now = esp_timer_get_time();

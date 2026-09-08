@@ -164,6 +164,39 @@ static void test_reset_clears_state(void)
           t.output >= 0.0f && t.output <= 100.0f, "");
 }
 
+/* ------------------------------------------------------------------ */
+/* 6. weapon_controller_test(): direct open-loop percent, ceiling+dir. */
+/* ------------------------------------------------------------------ */
+static void test_bench_test_percent(void)
+{
+    weapon_controller_init();
+
+    weapon_controller_test(40);
+    check("test(40) commands +40%", g_last_weapon_cmd == 40, NULL);
+
+    weapon_controller_test(-40);
+    check("test(-40) commands -40% (reverse)", g_last_weapon_cmd == -40, NULL);
+
+    weapon_controller_test(0);
+    check("test(0) commands 0%", g_last_weapon_cmd == 0, NULL);
+
+    /* WEAPON_MAX_OUTPUT_PCT is the hard ceiling; 100 must clamp to it. */
+    weapon_controller_test(100);
+    char buf[96];
+    snprintf(buf, sizeof buf, "commanded %d, ceiling %.0f",
+             g_last_weapon_cmd, (double)WEAPON_MAX_OUTPUT_PCT);
+    check("test(100) is clamped to the ceiling",
+          g_last_weapon_cmd == (int)WEAPON_MAX_OUTPUT_PCT, buf);
+    check("test(-100) is clamped to the ceiling in reverse",
+          (weapon_controller_test(-100), g_last_weapon_cmd) == -(int)WEAPON_MAX_OUTPUT_PCT, NULL);
+
+    /* Telemetry reports open-loop (no feedback) during a bench test. */
+    weapon_controller_test(30);
+    weapon_telemetry_t t; weapon_controller_get_telemetry(&t);
+    check("bench test reports feedback_ok = false", t.feedback_ok == false, NULL);
+    check("bench test output magnitude matches", (int)t.output == 30, NULL);
+}
+
 int main(void)
 {
     printf("\nweapon_controller host tests  (KP=%.3f KI=%.3f FF=%.0f)\n", WEAPON_KP, WEAPON_KI, WEAPON_FF);
@@ -173,6 +206,7 @@ int main(void)
     test_fault_does_not_wind_up();
     test_output_bounds();
     test_reset_clears_state();
+    test_bench_test_percent();
     printf("--------------------------------------------------------------------------\n");
     printf("%s (%d failure%s)\n\n", failures ? "FAILURES" : "ALL PASS", failures, failures == 1 ? "" : "s");
     return failures != 0;
