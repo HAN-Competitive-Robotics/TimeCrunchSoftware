@@ -1,20 +1,11 @@
 #pragma once
 
-/* Set to 1 to enable BMP280 thermal safety (per-motor cutoff at 100 °C and
- * system deep-sleep at 90 °C).  Set to 0 if temperature sensors are not
- * installed — tempsensor_driver_init() will not be called and task_thermal
- * will not be created. */
+/* 1 = BMP280 thermal safety (per-motor cutoff 100 °C, deep-sleep 90 °C).
+ * 0 if temp sensors aren't installed. */
 #define THERMAL_PROTECTION_ENABLED 0
 
-/* Set to 0 when the weapon Hall sensor is not physically fitted.
- *
- * With it 0 the weapon runs open-loop from the first command, at the levels in
- * weapon_controller.h and under WEAPON_MAX_OUTPUT_PCT. Nothing waits for a
- * feedback fault to be detected first.
- *
- * The fault path still exists and still works when this is 1; this flag is for
- * the case where there is no sensor to fault in the first place, so the robot
- * should not spend WEAPON_FEEDBACK_FAULT_MS pretending it might get RPM. */
+/* 0 when the weapon Hall sensor is not fitted: weapon runs open-loop and the
+ * feedback-fault path is skipped (no sensor to fault against). */
 #ifndef WEAPON_HALL_SENSOR_FITTED
 #define WEAPON_HALL_SENSOR_FITTED  0
 #endif
@@ -22,15 +13,9 @@
 /* --------------------------------------------------------------------------
  * Motor direction
  * --------------------------------------------------------------------------
- * Set to 1 to reverse that side. Direction is a property of how the motor is
- * mounted and which way its leads are landed, not of the control scheme, so it
- * is corrected here rather than by inverting a stick axis in the station.
- *
- * The two sides face opposite ways on a differential drive, so exactly one of
- * these is normally 1. If the robot drives backwards when you push forward,
- * flip BOTH. If it spins on the spot instead of driving straight, flip ONE.
- *
- * Previously the left side was negated inline with no way to change it. */
+ * Set to 1 to reverse that side (normally exactly one is 1 on differential
+ * drive). Drives backwards when you push forward: flip BOTH. Spins on the spot
+ * instead of straight: flip ONE. */
 #define MOTOR_INVERT_LEFT   0
 #define MOTOR_INVERT_RIGHT  1
 
@@ -45,55 +30,29 @@
 /* --------------------------------------------------------------------------
  * Command opcodes
  * --------------------------------------------------------------------------
- * The failsafe byte doubles as a tiny opcode space so commands fit the
- * existing 4-byte payload. Widening the payload would mean changing the ESB
- * config on both radios and the dongle's parser, for one rarely used message.
+ * The failsafe byte doubles as an opcode so commands fit the 4-byte payload.
  *
  * PACKET_OPCODE_SET_TRIM reinterprets the packet as:
- *   byte 0 = left trim  + 127
- *   byte 1 = right trim + 127
- *   byte 2 = TRIM_COMMAND_MAGIC
- *
- * The magic byte exists because a corrupted drive packet must not be able to
- * silently retrim the robot mid-match. The link has CRC, but the cost of one
- * constant is lower than the cost of being wrong about that.
- *
- * The station only sends this while disarmed. The robot cannot verify that,
- * since arm state is not on the wire, so it treats a trim packet as "no drive
- * command" and leaves the motors where they were rather than steering from
- * bytes that are not throttles. */
+ *   byte 0 = left trim + 127, byte 1 = right trim + 127, byte 2 = magic.
+ * The magic guards against a corrupted drive packet retrimming mid-match; the
+ * packet is skipped for drive (bytes 0/1 aren't throttles). */
 #define PACKET_OPCODE_DRIVE     0
 #define PACKET_OPCODE_SET_TRIM  1
 #define TRIM_COMMAND_MAGIC      0x5A
 
 /*
- * PACKET_OPCODE_WEAPON_TEST reinterprets the packet as a wireless bench test:
- *
- *   byte 0 = 127 + signed throttle percent  (-100..+100; sign = direction)
- *   byte 1 = 0
- *   byte 2 = WEAPON_TEST_MAGIC
- *   byte 3 = PACKET_OPCODE_WEAPON_TEST
- *
- * Wheels are forced neutral on this path. The station only emits these packets
- * while its 5-second deadman is held, so the weapon stops the moment the
- * operator stops pressing, the link drops, or any normal packet arrives. The
- * killswitch (byte 3 > 127) still overrides everything, and
- * WEAPON_MAX_OUTPUT_PCT still clamps the magnitude. The magic in byte 2 means
- * a corrupted drive packet cannot be mistaken for a spin-up command.
- */
+ * PACKET_OPCODE_WEAPON_TEST is a wireless bench test:
+ *   byte 0 = 127 + signed percent (sign = direction), byte 2 = magic.
+ * Wheels forced neutral; ceiling and killswitch still apply. The station only
+ * sends these while its 5 s deadman is held. */
 #define PACKET_OPCODE_WEAPON_TEST  2
 #define WEAPON_TEST_MAGIC          0xA7
 
 /* --------------------------------------------------------------------------
  * Link loss
  * --------------------------------------------------------------------------
- * Milliseconds without a valid packet before drive and weapon are cut.
- *
- * 500 ms is the value the robot has always run. Do not tighten it from a
- * guess: task_radio logs the observed inter-packet gap distribution every
- * PACKET_STATS_LOG_MS, so run a match, read the histogram, and set this from
- * the measured worst case with margin. A timeout below the real p100 gap
- * causes the robot to cut out mid-match on ordinary 2.4 GHz interference. */
+ * Milliseconds without a packet before drive and weapon cut. Set from the
+ * logged gap histogram, not a guess: too tight cuts out on interference. */
 #define LINK_LOSS_TIMEOUT_MS  500
 
 /* How often task_radio prints the packet-gap histogram. */
@@ -102,13 +61,8 @@
 /* --------------------------------------------------------------------------
  * Task watchdog
  * --------------------------------------------------------------------------
- * If either real-time task stops feeding the watchdog for this long the chip
- * panics and resets. The ESCs see no PWM while it reboots and disarm, so a
- * hung task cannot leave the weapon powered.
- *
- * task_radio iterates at most every 50 ms (its semaphore timeout) and
- * task_weapon every 10 ms, so 300 ms is roughly a 6x margin on the slower of
- * the two. task_thermal runs at 1 Hz and is deliberately NOT subscribed. */
+ * A stalled real-time task panics and resets the chip; the ESCs disarm on the
+ * lost PWM. 300 ms is ~6x task_radio's 50 ms loop. task_thermal isn't subscribed. */
 #define TASK_WDT_TIMEOUT_MS   300
 
 /* --------------------------------------------------------------------------
@@ -123,26 +77,15 @@
  * raised. Ignored when the current reading is unavailable. */
 #define WEAPON_FEEDBACK_MIN_CURRENT_A  2.0f
 
-/* How long the weapon may be commanded with no Hall edge at all before the
- * feedback is declared invalid.
- *
- * Must comfortably exceed the worst-case time from a standing start to the
- * FIRST edge, which for a high-inertia disc is the slowest part of spin-up.
- * Too short and a healthy weapon is falsely flagged during spin-up, which
- * costs the closed loop; it is never unsafe, since the fallback is the
- * open-loop behaviour the robot already ships. */
+/* Time commanded with no Hall edge before feedback is called invalid. Must
+ * exceed the standing-start-to-first-edge time (worst on a high-inertia disc). */
 #define WEAPON_FEEDBACK_FAULT_MS       1500
 
 /* --------------------------------------------------------------------------
  * Battery sag protection  (software, via INA3221)
  * --------------------------------------------------------------------------
- * DISABLED by default. Set to the pack's cell count to enable, and validate
- * the threshold on the bench under real weapon load before trusting it: a
- * spinning-up weapon sags the pack hard and briefly, and a cut level set from
- * a datasheet rather than a measurement will drop the weapon mid-match.
- *
- * 3.2 V/cell sustained is a conventional LiPo working floor, but "sustained"
- * is doing the work here — see WEAPON_BATTERY_SAG_SAMPLES. */
+ * DISABLED by default. Set to the cell count to enable, and validate the
+ * threshold under real weapon load first (spin-up sags the pack hard). */
 #define WEAPON_BATTERY_CELLS           0
 #define WEAPON_BATTERY_CUT_V_PER_CELL  3.20f
 

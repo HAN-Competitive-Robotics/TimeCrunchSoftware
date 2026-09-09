@@ -54,11 +54,8 @@ static int map_byte_to_throttle(uint8_t b)
 /* --------------------------------------------------------------------------
  * Packet gap statistics
  * --------------------------------------------------------------------------
- * LINK_LOSS_TIMEOUT_MS is currently 500 ms, inherited rather than measured.
- * Picking the right number needs the distribution of real inter-packet gaps
- * under arena conditions, so record it and print it periodically. After a
- * match, the highest occupied bucket is the worst gap the link actually
- * produced; the timeout wants to sit above that with margin.
+ * Records inter-packet gaps so LINK_LOSS_TIMEOUT_MS can be set from real
+ * arena data rather than the inherited 500 ms guess.
  * -------------------------------------------------------------------------- */
 #define GAP_BUCKET_COUNT 6
 static const uint16_t gap_bucket_ms[GAP_BUCKET_COUNT] = { 50, 100, 200, 300, 400, 500 };
@@ -157,9 +154,7 @@ void task_radio(void *pvParameters)
                     ESP_LOGD(TAG, "RX: L=%3d R=%3d W=%3d F=%3d  RPM: %.1f",
                              left_raw, right_raw, weapon_raw, failsafe_raw, hall_sensor_get_rpm());
 
-                    /* Not a drive command. Bytes 0 and 1 are trim values, not
-                     * throttles, so fall through to the next packet rather
-                     * than steering from them. */
+                    /* Trim command: bytes 0/1 are trim, not throttle. */
                     if (failsafe_raw == PACKET_OPCODE_SET_TRIM) {
                         if (weapon_raw != TRIM_COMMAND_MAGIC) {
                             ESP_LOGW(TAG, "Trim command with bad magic 0x%02X — ignored",
@@ -173,10 +168,8 @@ void task_radio(void *pvParameters)
                         continue;
                     }
 
-                    /* Wireless weapon bench test. Wheels are forced neutral and
-                     * the weapon is driven open-loop at the requested percent.
-                     * A killswitch is a separate packet (byte 3 > 127) and is
-                     * handled below, so it always wins over this. */
+                    /* Wireless weapon bench test: wheels neutral, weapon open-loop
+                     * at the requested percent. Killswitch (byte 3 > 127) wins. */
                     if (failsafe_raw == PACKET_OPCODE_WEAPON_TEST) {
                         if (weapon_raw != WEAPON_TEST_MAGIC) {
                             ESP_LOGW(TAG, "Weapon-test command with bad magic 0x%02X — ignored",
@@ -213,9 +206,7 @@ void task_radio(void *pvParameters)
                                  temp_get_temperature(TEMP_RIGHT_WHEEL),
                                  temp_get_temperature(TEMP_WEAPON),
                                  KILLSWITCH_TEMP_C);
-                        /* Leaving the watchdog subscribed here would panic the
-                         * chip during the settle delay and turn a controlled
-                         * shutdown into a reboot, which re-arms everything. */
+                        /* Unsubscribe the WDT, else the settle delay panics the chip. */
                         esp_task_wdt_delete(NULL);
                         vTaskDelay(pdMS_TO_TICKS(200));
                         esp_deep_sleep_start();
@@ -233,11 +224,8 @@ void task_radio(void *pvParameters)
                                       "%02X %02X %02X %02X — entering deep sleep, "
                                       "power cycle to recover",
                                  failsafe_raw, left_raw, right_raw, weapon_raw, failsafe_raw);
-                        /* A disconnected nRF24 leaves MISO floating high, so every
-                         * SPI read returns 0xFF. STATUS then has RX_DR set, the
-                         * driver reports a packet, and byte 3 reads as 255, which
-                         * lands here looking exactly like a real killswitch. Say so,
-                         * because the two are otherwise indistinguishable. */
+                        /* All-0xFF is a floating SPI bus (nRF24 disconnected), not
+                         * a real killswitch. Flag it, since they look identical. */
                         if (left_raw == 0xFF && right_raw == 0xFF &&
                             weapon_raw == 0xFF && failsafe_raw == 0xFF) {
                             ESP_LOGE(TAG, "  ...but every byte is 0xFF, which is a "
@@ -245,9 +233,7 @@ void task_radio(void *pvParameters)
                                           "the nRF24 wiring: STATUS should read 0x0E, "
                                           "and 0xFF means the module is not responding.");
                         }
-                        /* Leaving the watchdog subscribed here would panic the
-                         * chip during the settle delay and turn a controlled
-                         * shutdown into a reboot, which re-arms everything. */
+                        /* Unsubscribe the WDT, else the settle delay panics the chip. */
                         esp_task_wdt_delete(NULL);
                         vTaskDelay(pdMS_TO_TICKS(200));
                         esp_deep_sleep_start();
@@ -365,10 +351,7 @@ void task_thermal(void *pvParameters)
  * -------------------------------------------------------------------------- */
 void app_main(void)
 {
-    /* A brownout reset means the pack collapsed far enough to drop the rail.
-     * Nothing latches across the reset, so the robot comes up disarmed and
-     * stays that way until packets arrive, but the operator needs to know it
-     * happened rather than seeing an unexplained reboot mid-match. */
+    /* Log the reset cause so a brownout/watchdog reboot isn't a mystery. */
     esp_reset_reason_t reason = esp_reset_reason();
     if (reason == ESP_RST_BROWNOUT) {
         ESP_LOGE(TAG, "Last reset was a BROWNOUT — check pack voltage and weapon current draw");
@@ -376,10 +359,8 @@ void app_main(void)
         ESP_LOGE(TAG, "Last reset was a WATCHDOG timeout — a real-time task stalled");
     }
 
-    /* The IDF starts the task watchdog for the idle tasks at boot, so this is
-     * a reconfigure rather than a fresh init. idle_core_mask is cleared: the
-     * idle tasks legitimately starve while the control tasks are busy, and
-     * panicking over that would reset a perfectly healthy robot. */
+    /* Reconfigure the boot WDT; idle_core_mask=0 since idle tasks legitimately
+     * starve while control tasks run. */
     esp_task_wdt_config_t twdt_cfg = {
         .timeout_ms     = TASK_WDT_TIMEOUT_MS,
         .idle_core_mask = 0,
@@ -392,9 +373,7 @@ void app_main(void)
     ESP_ERROR_CHECK(werr);
     ESP_LOGI(TAG, "Task watchdog armed at %d ms", TASK_WDT_TIMEOUT_MS);
 
-    /* Before the tasks start, so the first packet is already trimmed. A
-     * failure here is logged and ignored: untrimmed driving is worse than
-     * trimmed driving, but far better than not booting. */
+    /* Before the tasks start, so the first packet is already trimmed. */
     trim_store_init();
     motor_trim_t boot_trim = trim_store_get();
     ESP_LOGI(TAG, "Motor trim: L=%d R=%d", boot_trim.left, boot_trim.right);
@@ -411,7 +390,6 @@ void app_main(void)
     xTaskCreatePinnedToCore(task_thermal, "task_thermal", 4096, NULL, 1, &h_thermal, 1);
 #endif
 
-    /* Started last so the drivers it reads are already initialised by
-     * task_radio's init block. */
+    /* Last, so the drivers it reads are already initialised. */
     safety_monitor_init();
 }

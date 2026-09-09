@@ -36,29 +36,16 @@ float safety_get_battery_voltage(void)
 /* --------------------------------------------------------------------------
  * Feedback fault
  *
- * Fault when the weapon has been commanded above WEAPON_FEEDBACK_MIN_OUTPUT
- * for WEAPON_FEEDBACK_FAULT_MS with no Hall edge in that whole time.
- *
- * The current reading, when the INA3221 is present, is used only to SUPPRESS
- * the fault: if the weapon is drawing essentially nothing then the ESC is not
- * actually driving the motor, so silence from the sensor is correct and not a
- * fault. When the INA3221 is absent the reading is NAN and the check falls
- * back to command-and-silence alone.
- *
- * Both directions of a wrong threshold are safe. Too sensitive and we declare
- * a fault that is not there, which degrades to open-loop feed-forward, exactly
- * what the firmware does today. Too insensitive and we simply fail to upgrade
- * that behaviour. Neither makes the weapon less safe than it currently is.
+ * Fault if the weapon is commanded above WEAPON_FEEDBACK_MIN_OUTPUT for
+ * WEAPON_FEEDBACK_FAULT_MS with no Hall edge. A near-zero INA3221 current
+ * suppresses it (the ESC isn't driving, so silence is expected).
  * -------------------------------------------------------------------------- */
 static void update_feedback_fault(TickType_t now)
 {
     static TickType_t commanded_since = 0;
     static bool       was_commanded   = false;
 
-    /* With no sensor fitted there is nothing to fault against: the controller
-     * is unconditionally open-loop, and hall_sensor_signal_fresh() is always
-     * false, so leaving this enabled would raise a feedback fault on every
-     * weapon spin. robot_config.h says as much next to the flag. */
+    /* No sensor fitted: nothing to fault against (always open-loop), so skip. */
     if (!WEAPON_HALL_SENSOR_FITTED) {
         was_commanded = false;
         atomic_store_explicit(&s_feedback_fault, false, memory_order_relaxed);
@@ -91,8 +78,7 @@ static void update_feedback_fault(TickType_t now)
     }
 
     if (hall_sensor_signal_fresh()) {
-        /* Sensor is reporting; restart the window so a brief dropout during
-         * spin-up does not accumulate towards a fault. */
+        /* Reporting: restart the window so a brief dropout doesn't fault. */
         commanded_since = now;
         if (atomic_exchange_explicit(&s_feedback_fault, false, memory_order_relaxed)) {
             ESP_LOGI(TAG, "Weapon feedback fault cleared");
@@ -111,9 +97,8 @@ static void update_feedback_fault(TickType_t now)
 /* --------------------------------------------------------------------------
  * Battery sag
  *
- * Disabled unless WEAPON_BATTERY_CELLS is set, because a cut threshold that
- * does not match the actual pack is worse than no threshold at all: too high
- * and the weapon drops out mid-match, too low and it never fires.
+ * Off unless WEAPON_BATTERY_CELLS is set: a threshold that doesn't match the
+ * pack is worse than none.
  * -------------------------------------------------------------------------- */
 static void update_battery(void)
 {
@@ -124,8 +109,7 @@ static void update_battery(void)
     atomic_store_explicit(&s_battery_v, v, memory_order_relaxed);
 
     if (isnan(v)) {
-        /* No usable reading. Do not inhibit on missing data — that would cut
-         * the weapon every time an I2C read glitches. */
+        /* No reading: don't inhibit on missing data (I2C glitches). */
         low_samples = 0;
         return;
     }
