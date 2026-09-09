@@ -10,11 +10,8 @@ except ImportError:
     sys.exit(1)
 
 
-# The dongle's USB vendor IDs: 1915 = Nordic, 2fe3 = Zephyr. This is the same
-# fingerprint scripts/flash.py uses to tell the dongle from everything else. It
-# is a hardware identity, so it will not match a mouse or some other USB-serial
-# device that merely has a similar description string - which is exactly the
-# bug the old "usb serial" keyword match caused.
+# USB vendor IDs: 1915 Nordic, 2fe3 Zephyr. Matching the VID (not a description
+# string) is what stops auto-detect grabbing a mouse. Same IDs flash.py uses.
 DONGLE_VIDS = ("1915", "2fe3")
 
 
@@ -24,8 +21,7 @@ def _is_dongle(p) -> bool:
 
 
 def list_serial_ports():
-    """Every serial port as (device, description, is_dongle). Dongle(s) first,
-    then alphabetical, so the UI picker can show and flag them."""
+    """(device, description, is_dongle) for each port, dongle first."""
     ports = [(p.device, (p.description or "").strip() or "unknown", _is_dongle(p))
              for p in serial.tools.list_ports.comports()]
     ports.sort(key=lambda t: (not t[2], t[0]))
@@ -33,9 +29,8 @@ def list_serial_ports():
 
 
 def find_dongle_port():
-    """The dongle's port, or None. Identified by USB vendor ID first so it can
-    never grab the wrong device; the /dev globs and vendor-name descriptions are
-    fallbacks for setups where the VID does not populate."""
+    """The dongle's port by USB VID, or None. /dev globs and vendor names are
+    fallbacks for when the VID doesn't populate."""
     for p in serial.tools.list_ports.comports():
         if _is_dongle(p):
             return p.device
@@ -63,9 +58,7 @@ class SerialLink:
         self._hz_t0 = time.time()
         self._hz_n = 0
         self._hz_current = 0.0
-        # "auto" resolves to the dongle by USB ID; a specific device name
-        # ("COM5", "/dev/cu.usbmodemXXXX") pins that port. The UI can change
-        # this at runtime with set_port().
+        # "auto" = find dongle by USB ID; a device name pins that port.
         self.forced_port = cfg["serial"].get("port", "auto")
 
     def list_ports(self):
@@ -77,8 +70,7 @@ class SerialLink:
         return find_dongle_port()
 
     def set_port(self, port: str) -> None:
-        """Switch to a specific device or 'auto'. Drops the current connection
-        so the next ensure_connected() reopens on the new target immediately."""
+        """Switch to a device or 'auto', dropping the current connection."""
         self.forced_port = port
         if self.ser is not None:
             try:
@@ -126,11 +118,9 @@ class SerialLink:
             self.state = "searching"
             return False
 
-        # Windows does not reliably fail a write when a USB CDC device is
-        # yanked, so a dropped dongle would otherwise still read as connected.
-        # Once a second, confirm the port is still enumerated; if it vanished,
-        # treat it as lost. This is what makes the dongle-removal failsafe fire
-        # on Windows, not just on macOS/Linux.
+        # Windows doesn't fail a write when the dongle is yanked, so check once
+        # a second that the port is still enumerated. Also lets the dongle-
+        # removal failsafe fire on Windows.
         now = time.time()
         if now - self._last_liveness_check >= 1.0:
             self._last_liveness_check = now
