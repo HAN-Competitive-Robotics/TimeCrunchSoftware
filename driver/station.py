@@ -531,19 +531,26 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _test["enabled"] = False
         _log_add("Killswitch reset - disarmed, weapon locked")
 
+    def _test_keepalive():
+        # Adjusting the test while it's running counts as active presence.
+        if _test["enabled"]:
+            _test["deadline"] = time.time() + TEST_DEADMAN_S
+
     def cb_test_mag(s, val, u):
         _test["mag"] = max(0, min(WPN_TEST_MAX, int(val)))
         dpg.set_value("sl_test_mag", _test["mag"])
         dpg.set_value("inp_test_mag", _test["mag"])
+        _test_keepalive()
 
     def cb_test_mag_inp(s, val, u): cb_test_mag(s, val, u)
 
     def cb_test_dir(s, val, u):
         _test["dir"] = 1 if val == "Forward" else -1
+        _test_keepalive()
 
     def cb_test_spin(s_, a, u):
-        """The deadman press. First press asks for the password; each press
-        after that extends the 5-second window."""
+        """Deadman press. Password once to start the session; after that each
+        press extends or resumes the 5 s window with no password."""
         global _pw_purpose
         if _gs["killswitch"]:
             _log_add("Reset the killswitch before testing the weapon")
@@ -959,28 +966,33 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
              "danger"         if kill else "panel")
 
     now = time.time()
-    if _test["enabled"]:
-        remaining = max(0.0, _test["deadline"] - now)
-        dname = "FWD" if _test["dir"] > 0 else "REV"
+    dname = "FWD" if _test["dir"] > 0 else "REV"
+    remaining = max(0.0, _test["deadline"] - now)
+    test_live = _test["enabled"] and remaining > 0.0
+    if test_live:
         pulse = "test_hot" if int(now * 2) % 2 else "test_live"
         _set_ind("btn_test_spin", f"KEEP SPINNING  {remaining:0.1f}s", pulse)
         dpg.set_value("txt_test_status",
                       f"LIVE: {_test['mag']}% {dname} - re-press within {remaining:0.1f}s")
         dpg.configure_item("txt_test_status", color=C_WARN[:3])
+    elif _test["enabled"]:
+        _set_ind("btn_test_spin", f"RESUME {_test['mag']}% {dname}", "test_ready")
+        dpg.set_value("txt_test_status", "Paused - press SPIN to resume (no password)")
+        dpg.configure_item("txt_test_status", color=C_DIM[:3])
     else:
-        dname = "FWD" if _test["dir"] > 0 else "REV"
         _set_ind("btn_test_spin", f"SPIN {_test['mag']}% {dname}", "test_ready")
         dpg.set_value("txt_test_status",
-                      "Idle. SPIN needs the password, then a re-press every 5 s.")
+                      "Idle. SPIN needs the password once, then re-press every 5 s.")
         dpg.configure_item("txt_test_status", color=C_DIM[:3])
 
     if kill:
         _set_banner("KILLSWITCH LATCHED",
                     "failsafe sent - power cycle the robot to recover", "kill")
+    elif test_live:
+        _set_banner(f"WEAPON TEST  {_test['mag']}% {dname}",
+                    f"bench test live - re-press SPIN within {remaining:0.1f}s", "test")
     elif _test["enabled"]:
-        _set_banner(f"WEAPON TEST  {_test['mag']}% {'FWD' if _test['dir'] > 0 else 'REV'}",
-                    f"bench test live - re-press SPIN within {max(0.0, _test['deadline'] - now):0.1f}s",
-                    "test")
+        _set_banner("WEAPON TEST PAUSED", "press SPIN to resume", "test")
     elif armed and not locked:
         _set_banner("ARMED - WEAPON LIVE", "weapon controls enabled", "live")
     elif armed:
@@ -1093,6 +1105,7 @@ def main() -> None:
     last_send = 0.0
     prev_inv = prev_arm = prev_wpn = False
     prev_link_connected = (link.state == "connected")
+    prev_test_spin = False
 
     while dpg.is_dearpygui_running():
         now = time.time()
@@ -1125,13 +1138,15 @@ def main() -> None:
         if kill_raw:
             trigger_killswitch(link)
 
-        if _test["enabled"] and now >= _test["deadline"]:
-            _test["enabled"] = False
-            _log_add("Weapon test deadman expired - weapon off")
+        # A deadman lapse pauses (weapon off) but keeps the session armed, so a
+        # re-press resumes without the password. STOP or killswitch end it.
         if _gs["killswitch"]:
             _test["enabled"] = False
         test_spinning = test_should_spin(_test["enabled"], now, _test["deadline"],
                                          _gs["killswitch"], link.state == "connected")
+        if prev_test_spin and not test_spinning and _test["enabled"] and now >= _test["deadline"]:
+            _log_add("Weapon test paused - press SPIN to resume")
+        prev_test_spin = test_spinning
 
         if arm_raw and not prev_arm and not _test["enabled"]:
             _gs["armed"] = not _gs["armed"]
