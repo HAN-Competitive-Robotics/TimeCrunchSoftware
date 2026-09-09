@@ -142,6 +142,25 @@ def _log_add(msg: str) -> None:
     _log_rev += 1
 
 
+PORT_AUTO = "Auto (find dongle)"
+
+
+def _port_items(link) -> list:
+    """Combo items: Auto first, then every serial port with its description and
+    a [DONGLE] flag on the one whose USB ID matches the radio dongle."""
+    items = [PORT_AUTO]
+    for dev, desc, is_dongle in link.list_ports():
+        items.append(f"{dev} | {desc}" + ("  [DONGLE]" if is_dongle else ""))
+    return items
+
+
+def _port_from_item(item: str) -> str:
+    """Selected combo string back to a device name, or 'auto'."""
+    if item.startswith("Auto"):
+        return "auto"
+    return item.split(" | ", 1)[0].strip()
+
+
 def _log_color(line: str, newest: bool) -> list:
     if "KILL" in line:
         return C_DANGER[:3]
@@ -480,6 +499,17 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _mode_idx = index_of(val)
         _apply_mode()
 
+    def cb_port_select(s, val, u):
+        port = _port_from_item(val)
+        link.set_port(port)
+        _log_add("Serial port set to auto (match dongle by USB ID)"
+                 if port == "auto" else f"Serial port set to {port}")
+
+    def cb_port_rescan(s, a, u):
+        items = _port_items(link)
+        dpg.configure_item("cmb_port", items=items)
+        _log_add(f"Rescanned serial ports: {len(items) - 1} found")
+
     def cb_lock_click(s_, a, u):
         """Locking never needs a password. Unlocking always does."""
         global _pw_purpose
@@ -700,6 +730,12 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             _use_font(s2, F_SMALL)
             t3 = dpg.add_text("0.0 Hz | - ms",   tag="txt_stats",   color=C_DIM[:3])
             _use_font(t3, F_MONO)
+            dpg.add_spacer(width=18)
+            pl = dpg.add_text("Port", color=C_DIM[:3])
+            _use_font(pl, F_SMALL)
+            dpg.add_combo(tag="cmb_port", width=250, items=_port_items(link),
+                          default_value=PORT_AUTO, callback=cb_port_select)
+            dpg.add_button(label="Rescan", callback=cb_port_rescan)
 
         # State banner
         with dpg.child_window(tag="banner_child", height=BANNER_H,
