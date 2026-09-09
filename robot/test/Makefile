@@ -13,7 +13,10 @@ LDLIBS  := -lm
 
 # Candidate gains used only to exercise the saturated path. The shipped gains
 # are zero, which would make every windup assertion vacuous.
-TEST_GAINS := -DWEAPON_KP=0.004f -DWEAPON_KI=0.02f
+# The anti-windup path only runs closed-loop, i.e. with a sensor fitted.
+# The shipped config has WEAPON_HALL_SENSOR_FITTED 0, so override it here
+# to test the logic that is live whenever a sensor IS present.
+TEST_GAINS := -DWEAPON_KP=0.004f -DWEAPON_KI=0.02f -DWEAPON_HALL_SENSOR_FITTED=1 -DWEAPON_MAX_OUTPUT_PCT=100.0f
 
 .PHONY: all clean
 all: run

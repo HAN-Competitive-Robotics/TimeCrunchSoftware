@@ -52,7 +52,11 @@ sudo apt-get update
 sudo apt-get install -y \
 	git wget flex bison gperf ccache dfu-util \
 	cmake ninja-build libffi-dev libssl-dev libusb-1.0-0 \
-	python3 python3-venv python3-setuptools python3-serial
+	python3 python3-venv python3-setuptools python3-serial \
+	fonts-dejavu-core
+
+# fonts-dejavu-core: driver/station.py renders with DejaVu Sans when it is
+# present instead of falling back to DearPyGui's tiny built-in bitmap font.
 
 # python3-serial rather than "pip install pyserial": Ubuntu 23.04+ refuses pip
 # installs outside a venv (PEP 668), and scripts/flash.py imports serial.

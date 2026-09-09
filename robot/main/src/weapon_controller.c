@@ -85,6 +85,16 @@ static void publish(float target, float rpm, float error, float output, bool fee
     s_last_output            = output;
 }
 
+void weapon_controller_test(int pct)
+{
+    int8_t dir = (pct < 0) ? -1 : 1;
+    float  mag = clamp_output((float)(pct < 0 ? -pct : pct));
+    s_integral  = 0.0f;
+    s_last_time = esp_timer_get_time();
+    publish(0.0f, 0.0f, 0.0f, mag, false);
+    motor_set_throttle(MOTOR_WEAPON, (int)mag * dir);
+}
+
 void weapon_controller_update(void)
 {
     int64_t now = esp_timer_get_time();
@@ -94,16 +104,31 @@ void weapon_controller_update(void)
     if (dt <= 0.0f)            dt = 0.0f;
     if (dt > WEAPON_MAX_DT_S)  dt = WEAPON_MAX_DT_S;
 
-    // Run open-loop when there is no usable RPM: either no sensor is fitted at
-    // all, or one is fitted and has faulted.
+    // Run open-loop when there is no usable RPM. The two ways that happens are
+    // NOT the same and must not be treated the same:
     //
-    // Closing the loop without feedback is the dangerous case: rpm reads 0, the
-    // error becomes the entire target, and the integrator drives the output to
-    // saturation on a weapon that may well be spinning. Hold the integrator at
-    // zero and command a fixed level chosen by the target instead.
-    if (!WEAPON_HALL_SENSOR_FITTED || safety_weapon_feedback_fault()) {
+    //   - No sensor fitted: open-loop IS the normal, intended mode, so honour
+    //     the commanded level. Attack can be full throttle.
+    //   - Sensor fitted but silent (fault): speed control has been lost
+    //     mid-run, so back off to a conservative feed-forward level rather than
+    //     driving the open-loop attack percentage blind. Capped at WEAPON_FF,
+    //     so it never exceeds the normal command and idle still stays idle.
+    //
+    // Either way hold the integrator at zero: closing the loop without feedback
+    // lets rpm read 0, makes the error the whole target, and winds the output
+    // to saturation on a weapon that may well be spinning.
+    if (!WEAPON_HALL_SENSOR_FITTED) {
         s_integral = 0.0f;
         float output = clamp_output(open_loop_output(s_target_rpm));
+        publish(s_target_rpm, 0.0f, 0.0f, output, false);
+        motor_set_throttle(MOTOR_WEAPON, (int)output * reverse_flag);
+        return;
+    }
+    if (safety_weapon_feedback_fault()) {
+        s_integral = 0.0f;
+        float base = open_loop_output(s_target_rpm);
+        if (base > WEAPON_FF) base = WEAPON_FF;   /* conservative on a fault */
+        float output = clamp_output(base);
         publish(s_target_rpm, 0.0f, 0.0f, output, false);
         motor_set_throttle(MOTOR_WEAPON, (int)output * reverse_flag);
         return;

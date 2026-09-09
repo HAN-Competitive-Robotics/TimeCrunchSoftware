@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HCR Mission Control — Dear PyGui driver station."""
+"""HCR Mission Control - Dear PyGui driver station."""
 from __future__ import annotations
 
 import os, sys, json, time, argparse, hashlib, getpass
@@ -29,30 +29,89 @@ from inputmapper import InputMapper
 from calibrate   import calibrate
 
 # ─── Layout ──────────────────────────────────────────────────────────────────
-LEFT_W  = 250
-BAR_W   = 62
-BAR_H   = 200
+LEFT_W  = 400         # fixed width of the safety/drive column; the rest stretches
+BANNER_H = 96
+BAR_W   = 68
+BAR_H   = 172
 BAR_CY  = BAR_H // 2
-BAR_PAD = (LEFT_W - BAR_W * 2 - 10) // 2
 
-LOG_N  = 8
-LOG_H  = 120
+PW_MODAL_W = 300      # password modal content width
+
+LOG_KEEP  = 200       # history kept in memory
+LOG_SLOTS = 60        # lines rendered, newest first
 
 # ─── Palette ─────────────────────────────────────────────────────────────────
-C_BG     = [30,  30,  35,  255]
-C_PANEL  = [45,  45,  55,  255]
-C_BORDER = [65,  65,  78,  255]
-C_TEXT   = [220, 220, 220, 255]
-C_DIM    = [110, 110, 122, 255]
-C_ACCENT = [0,   200, 255, 255]
-C_GOOD   = [60,  220, 110, 255]
-C_WARN   = [255, 175, 0,   255]
-C_DANGER = [255, 60,  60,  255]
-C_FWD    = [40,  210, 100, 255]
-C_REV    = [210, 70,  70,  255]
+C_BG     = [21,  22,  27,  255]
+C_PANEL  = [31,  33,  41,  255]   # card background
+C_FIELD  = [43,  46,  57,  255]   # input/frame background
+C_WELL   = [24,  25,  31,  255]   # recessed areas: bars, event log
+C_BORDER = [58,  62,  76,  255]
+C_TEXT   = [226, 229, 236, 255]
+C_DIM    = [128, 136, 150, 255]
+C_ACCENT = [0,   190, 255, 255]
+C_GOOD   = [70,  210, 118, 255]
+C_WARN   = [255, 178, 44,  255]
+C_DANGER = [244, 84,  70,  255]
+C_FWD    = [52,  214, 110, 255]
+C_REV    = [222, 84,  74,  255]
+
+# ─── Fonts ───────────────────────────────────────────────────────────────────
+# DearPyGui's built-in bitmap font is 13 px and looks like a debug overlay, so
+# load a real system font when one exists. Every path is optional: on a machine
+# with none of them the UI falls back to the default font and merely looks
+# plainer. WSL note: scripts/setup-wsl.sh installs fonts-dejavu-core.
+F_BODY = F_SMALL = F_MONO = F_BANNER = None
+
+
+def _font_paths() -> tuple[list, list, list]:
+    win   = "C:/Windows/Fonts"
+    mac   = "/System/Library/Fonts/Supplemental"
+    linux = "/usr/share/fonts/truetype"
+    body = [f"{win}/segoeui.ttf", f"{win}/tahoma.ttf",
+            f"{mac}/Tahoma.ttf",  f"{mac}/Arial.ttf",
+            f"{linux}/dejavu/DejaVuSans.ttf",
+            f"{linux}/ubuntu/Ubuntu-R.ttf",
+            f"{linux}/liberation/LiberationSans-Regular.ttf"]
+    bold = [f"{win}/segoeuib.ttf", f"{win}/tahomabd.ttf",
+            f"{mac}/Tahoma Bold.ttf", f"{mac}/Arial Bold.ttf",
+            f"{linux}/dejavu/DejaVuSans-Bold.ttf",
+            f"{linux}/ubuntu/Ubuntu-B.ttf",
+            f"{linux}/liberation/LiberationSans-Bold.ttf"]
+    mono = [f"{win}/consola.ttf",
+            f"{mac}/Andale Mono.ttf", f"{mac}/Courier New.ttf",
+            f"{linux}/dejavu/DejaVuSansMono.ttf",
+            f"{linux}/ubuntu-mono/UbuntuMono-R.ttf",
+            f"{linux}/liberation/LiberationMono-Regular.ttf"]
+    return body, bold, mono
+
+
+def _load_fonts() -> None:
+    global F_BODY, F_SMALL, F_MONO, F_BANNER
+    body_c, bold_c, mono_c = _font_paths()
+    body = next((p for p in body_c if Path(p).exists()), None)
+    bold = next((p for p in bold_c if Path(p).exists()), None) or body
+    mono = next((p for p in mono_c if Path(p).exists()), None)
+    with dpg.font_registry():
+        if body:
+            F_BODY   = dpg.add_font(body, 17)
+            F_SMALL  = dpg.add_font(body, 14)
+        if bold:
+            F_BANNER = dpg.add_font(bold, 30)
+        if mono:
+            F_MONO   = dpg.add_font(mono, 15)
+    if F_BODY:
+        dpg.bind_font(F_BODY)
+
+
+def _use_font(item, font) -> None:
+    if font:
+        dpg.bind_item_font(item, font)
+
 
 # ─── Runtime state ────────────────────────────────────────────────────────────
-_log: deque[str] = deque(maxlen=LOG_N)
+_log: deque[str] = deque(maxlen=LOG_KEEP)
+_log_rev: int = 0          # bumped by _log_add so the UI only redraws on change
+_log_shown_rev: int = -1
 
 _gs: dict = {
     "drive_inverted": False,
@@ -66,21 +125,44 @@ _mode_idx: int = 0                # index into drive_modes.DRIVE_MODES
 _weapon_pw_hash: str = ""         # from config.json, set in main()
 _relock_on_disarm: bool = True
 _IND: dict[str, int] = {}
+_BANNER: dict[str, int] = {}
+_banner_shown: tuple | None = None
 _trim: dict = {"L": 0, "R": 0}    # raw offset −127…+127
 _mult: dict = {"L": 1.0, "R": 1.0}  # output multiplier 0.0…5.0
+_pw_purpose: str = "unlock"       # what the password modal is gating right now
+_failsafe_on_dongle_removal: bool = True
+_test: dict = {"enabled": False, "mag": 40, "dir": 1, "deadline": 0.0}
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _log_add(msg: str) -> None:
+    global _log_rev
     _log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+    _log_rev += 1
+
+
+def _log_color(line: str, newest: bool) -> list:
+    if "KILL" in line:
+        return C_DANGER[:3]
+    if "WARNING" in line or "failed" in line or "refused" in line:
+        return C_WARN[:3]
+    return C_TEXT[:3] if newest else C_DIM[:3]
 
 
 # Must match robot/main/include/robot_config.h. The failsafe byte doubles as
 # an opcode so commands fit the existing 4-byte payload.
-OPCODE_DRIVE    = 0
-OPCODE_SET_TRIM = 1
-TRIM_MAGIC      = 0x5A
+OPCODE_DRIVE       = 0
+OPCODE_SET_TRIM    = 1
+OPCODE_WEAPON_TEST = 2
+TRIM_MAGIC         = 0x5A
+WEAPON_TEST_MAGIC  = 0xA7
+
+# Mirror of WEAPON_MAX_OUTPUT_PCT in robot/main/include/weapon_controller.h.
+# The robot clamps to its own ceiling regardless, so this only keeps the UI
+# from offering a number the firmware will silently cut down.
+WPN_TEST_MAX   = 100
+TEST_DEADMAN_S = 5.0
 
 
 def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
@@ -133,22 +215,104 @@ def trim_packet(trim_l: int, trim_r: int) -> bytes:
                        TRIM_MAGIC, OPCODE_SET_TRIM)
 
 
-# ─── Indicator buttons ────────────────────────────────────────────────────────
+def weapon_test_packet(signed_pct: int) -> bytes:
+    """Encode a wireless weapon-test command. Percent is offset by 127 (sign =
+    direction), byte 2 carries the magic, byte 3 the opcode. The robot forces
+    the wheels neutral and drives the weapon open-loop at this percent."""
+    p = max(-100, min(100, signed_pct))
+    return _hex_packet(max(0, min(255, 127 + p)), 0, WEAPON_TEST_MAGIC, OPCODE_WEAPON_TEST)
+
+
+def test_should_spin(enabled: bool, now: float, deadline: float,
+                     killswitch_latched: bool, connected: bool) -> bool:
+    """The weapon test spins only while enabled, connected, not killed, and
+    inside the 5-second deadman window. Every one of these dropping stops it:
+    the deadman lapsing, the link dropping, or the killswitch latching."""
+    return bool(enabled and connected and not killswitch_latched and now < deadline)
+
+
+def dongle_pull_kills(prev_connected: bool, now_connected: bool,
+                      enabled: bool, already_latched: bool) -> bool:
+    """Latch a killswitch when the dongle drops off USB (connected -> not).
+
+    The station's serial link is to the dongle over USB, not to the robot, so
+    this fires on USB removal only. An RF dropout leaves the dongle enumerated
+    and the serial link up, so mid-match radio blips do NOT trigger this and
+    stay recoverable exactly as before. Once latched, the loop sends failsafe
+    255 with every packet, so the moment the dongle is plugged back in the
+    robot is commanded into deep sleep."""
+    return enabled and prev_connected and not now_connected and not already_latched
+
+
+def trigger_killswitch(link: SerialLink) -> None:
+    """Latch the killswitch and burst the failsafe byte at the robot.
+
+    One shared path for the physical key, the gamepad button, and the UI
+    button, so they cannot drift apart. Idempotent: once latched, later
+    calls do nothing. The per-frame packet keeps carrying failsafe 255 for
+    as long as the latch stands; the burst covers the moment of activation.
+    """
+    if _gs["killswitch"]:
+        return
+    _gs["killswitch"] = True
+    _test["enabled"] = False          # a kill also ends any running bench test
+    _log_add("KILLSWITCH - robot latched until power cycle")
+    if link.ensure_connected():
+        for _ in range(5):
+            link.send(b"7f7f7fff\n")
+    else:
+        _log_add("WARNING: killswitch sent but serial not connected")
+
+
+_TEXT_INPUTS = ("inp_wpn_pw", "inp_trim_L", "inp_trim_R",
+                "inp_mult_L", "inp_mult_R")
+
+
+def keyboard_captured() -> bool:
+    """True while typing belongs to a text field rather than the robot.
+
+    The keyboard is read by global polling, so without this gate, typing the
+    weapon password would arm, steer, and even killswitch the robot: password
+    characters are also control keys. While the unlock dialog is open or any
+    number box is being edited, every keyboard binding reads as released.
+    The gamepad and the on-screen buttons stay live throughout, so the
+    killswitch is never out of reach.
+    """
+    if dpg.is_item_shown("wpn_pw_modal"):
+        return True
+    return any(dpg.is_item_active(t) for t in _TEXT_INPUTS)
+
+
+# ─── Indicator and button themes ─────────────────────────────────────────────
 
 def _make_ind_themes() -> None:
+    # (bg, text) or (bg, text, hover). Indicators keep hover == bg so they do
+    # not pretend to be clickable; the two real buttons brighten on hover.
     specs: dict[str, tuple] = {
-        "panel":  ((50,  50,  62),  (160, 160, 170)),
-        "good":   ((40,  160, 80),  (230, 255, 230)),
-        "warn":   ((180, 125, 0),   (255, 240, 160)),
-        "danger": ((175, 35,  35),  (255, 200, 200)),
-        "attack": ((150, 20,  20),  (255, 170, 170)),
+        "panel":       ((44,  47,  58),  (168, 174, 184)),
+        "good":        ((36,  150, 82),  (232, 255, 238)),
+        "warn":        ((176, 122, 12),  (255, 240, 178)),
+        "danger":      ((172, 40,  38),  (255, 208, 204)),
+        "attack":      ((156, 22,  22),  (255, 176, 176)),
+        "arm_ready":   ((28,  128, 66),  (235, 255, 242), (36,  152, 80)),
+        "arm_live":    ((178, 108, 20),  (255, 245, 225), (200, 126, 30)),
+        "lock_locked": ((58,  74,  106), (216, 228, 248), (70,  90,  128)),
+        "lock_live":   ((172, 62,  34),  (255, 224, 210), (196, 76,  44)),
+        "lock_hot":    ((216, 84,  46),  (255, 238, 228), (216, 84,  46)),
+        "test_ready":  ((150, 70,  20),  (255, 236, 210), (170, 84,  26)),
+        "test_live":   ((196, 96,  26),  (255, 244, 230), (196, 96,  26)),
+        "test_hot":    ((230, 120, 40),  (255, 250, 240), (230, 120, 40)),
+        "kill_ready":  ((152, 32,  32),  (255, 214, 212), (178, 40,  40)),
+        "kill_reset":  ((128, 92,  18),  (255, 240, 200), (148, 108, 24)),
     }
-    for name, (bg, fg) in specs.items():
+    for name, spec in specs.items():
+        bg, fg = spec[0], spec[1]
+        hov = spec[2] if len(spec) > 2 else bg
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_color(dpg.mvThemeCol_Button,        bg)
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, bg)
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  bg)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, hov)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  hov)
                 dpg.add_theme_color(dpg.mvThemeCol_Text,          fg)
         _IND[name] = t
 
@@ -158,13 +322,41 @@ def _set_ind(tag: str, label: str, theme: str) -> None:
     dpg.bind_item_theme(tag, _IND[theme])
 
 
+def _make_banner_themes() -> None:
+    for name, bg in {
+        "disarmed": (44,  48,  60),
+        "armed":    (24,  118, 62),
+        "live":     (164, 106, 16),
+        "test":     (176, 92,  20),
+        "kill":     (158, 34,  30),
+    }.items():
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, bg)
+        _BANNER[name] = t
+
+
+def _set_banner(main: str, sub: str, state: str) -> None:
+    """One loud line for the whole station state. Buttons say the action they
+    perform; this banner is the single place that says what the state IS."""
+    global _banner_shown
+    key = (main, sub, state)
+    if key == _banner_shown:
+        return
+    _banner_shown = key
+    dpg.set_value("txt_banner", main)
+    dpg.set_value("txt_banner_sub", sub)
+    dpg.bind_item_theme("banner_child", _BANNER[state])
+
+
 # ─── Motor bars ───────────────────────────────────────────────────────────────
 
 def _make_bar(side: str) -> None:
-    dpg.add_text(side, color=C_DIM[:3], indent=BAR_W // 2 - 4)
+    t = dpg.add_text(side, color=C_DIM[:3], indent=BAR_W // 2 - 4)
+    _use_font(t, F_SMALL)
     with dpg.drawlist(width=BAR_W, height=BAR_H, tag=f"dl_{side}"):
         dpg.draw_rectangle([0, 0], [BAR_W, BAR_H],
-                           fill=C_PANEL[:3], color=[0, 0, 0, 0], tag=f"dr_bg_{side}")
+                           fill=C_WELL[:3], color=[0, 0, 0, 0], tag=f"dr_bg_{side}")
         for pct in [25, 50, 75]:
             tw = 7 if pct == 50 else 4
             for direction in (1, -1):
@@ -179,8 +371,9 @@ def _make_bar(side: str) -> None:
                            tag=f"dr_glow_{side}")
         dpg.draw_rectangle([5, BAR_CY - 1], [BAR_W - 5, BAR_CY + 1],
                            fill=C_DIM[:3], color=[0, 0, 0, 0], tag=f"dr_bar_{side}")
-    dpg.add_text("127", tag=f"txt_val_{side}", color=C_TEXT[:3],
-                 indent=BAR_W // 2 - 8)
+    v = dpg.add_text("127", tag=f"txt_val_{side}", color=C_TEXT[:3],
+                     indent=BAR_W // 2 - 14)
+    _use_font(v, F_MONO)
 
 
 def _update_bar(side: str, value: int) -> None:
@@ -204,46 +397,67 @@ def _update_bar(side: str, value: int) -> None:
 
 # ─── UI construction ──────────────────────────────────────────────────────────
 
+def _section(label: str) -> None:
+    dpg.add_spacer(height=6)
+    t = dpg.add_text(label, color=C_DIM[:3])
+    _use_font(t, F_SMALL)
+    dpg.add_separator()
+
+
 def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
     """Builds the HUD.
+
+    Layout model: a full-width state banner on top, then two cards. The left
+    card is fixed width and holds everything used mid-match (safety controls,
+    drive mode, motor bars, keybinds). The right card stretches with the
+    window and holds setup controls and the event log, which absorbs all the
+    leftover space instead of leaving it empty.
 
     Drive mode changes only through the dropdown. There is deliberately no
     keyboard shortcut: a hidden key that silently swaps the control layout
     mid-match is a hazard, not a convenience.
     """
+    _load_fonts()
+
     with dpg.theme() as g_theme:
         with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg,         (30, 30, 35))
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg,          (30, 30, 35))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg,          (45, 45, 55))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,   (55, 55, 67))
-            dpg.add_theme_color(dpg.mvThemeCol_Button,           (50, 50, 63))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,    (65, 65, 80))
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg,         C_BG[:3])
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg,          C_PANEL[:3])
+            dpg.add_theme_color(dpg.mvThemeCol_Border,           C_BORDER[:3])
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg,          C_FIELD[:3])
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,   (53, 57, 70))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive,    (60, 65, 80))
+            dpg.add_theme_color(dpg.mvThemeCol_Button,           (52, 56, 70))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,    (66, 71, 88))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,     (0, 155, 205))
-            dpg.add_theme_color(dpg.mvThemeCol_Text,             (220, 220, 220))
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBg,          (22, 22, 28))
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive,    (28, 28, 36))
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg,      (25, 25, 32))
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab,    (65, 65, 80))
-            dpg.add_theme_color(dpg.mvThemeCol_Separator,        (60, 60, 72))
+            dpg.add_theme_color(dpg.mvThemeCol_Text,             C_TEXT[:3])
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg,          (16, 17, 21))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive,    (22, 23, 29))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg,      (24, 25, 30))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab,    (62, 67, 82))
+            dpg.add_theme_color(dpg.mvThemeCol_Separator,        (52, 56, 68))
             dpg.add_theme_color(dpg.mvThemeCol_Header,           (0, 140, 190, 150))
             dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,    (0, 190, 240, 200))
             dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,     (0, 200, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_PopupBg,          (28, 28, 38))
-            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg,    (38, 38, 50))
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg,       (30, 30, 35))
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt,    (36, 36, 46))
-            dpg.add_theme_color(dpg.mvThemeCol_TableBorderLight, (62, 62, 76))
-            dpg.add_theme_color(dpg.mvThemeCol_PlotLines,        (0, 200, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg,          (30, 32, 40))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab,       (0, 160, 215))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 200, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark,        (0, 200, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ModalWindowDimBg, (10, 10, 14, 180))
             dpg.add_theme_style(dpg.mvStyleVar_WindowRounding,  0)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,   4)
-            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding,    4)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,     8, 5)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,    8, 5)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,   12, 10)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding,   8)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,   5)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding,    5)
+            dpg.add_theme_style(dpg.mvStyleVar_PopupRounding,   6)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,     8, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,    9, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,   14, 12)
             dpg.add_theme_style(dpg.mvStyleVar_CellPadding,     6, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+            dpg.add_theme_style(dpg.mvStyleVar_ScrollbarSize,   12)
     dpg.bind_theme(g_theme)
     _make_ind_themes()
+    _make_banner_themes()
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
     def _apply_mode() -> None:
@@ -268,32 +482,122 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
     def cb_lock_click(s_, a, u):
         """Locking never needs a password. Unlocking always does."""
+        global _pw_purpose
         if not _gs["weapon_locked"]:
             _gs["weapon_locked"] = True
             _gs["weapon_state"] = "safe"
             _log_add("Weapon LOCKED")
             return
+        if _test["enabled"]:
+            _log_add("Stop the weapon test before unlocking for drive")
+            return
+        if _relock_on_disarm and not _gs["armed"]:
+            # An unlock done while disarmed is undone within a frame by the
+            # relock-on-disarm rule, which looks like the button silently
+            # doing nothing. Refuse with an explanation instead.
+            _log_add("Arm first - the weapon stays locked while disarmed")
+            return
+        _pw_purpose = "unlock"
+        dpg.configure_item("wpn_pw_modal", label="Unlock weapon")
+        dpg.set_value("txt_pw_prompt", "Enter the weapon password.")
         dpg.set_value("inp_wpn_pw", "")
-        dpg.set_value("txt_wpn_pw_err", "")
-        dpg.configure_item("wpn_pw_modal", show=True)
+        dpg.set_value("txt_wpn_pw_err", " ")
+        # Centre on the viewport. The modal is autosized so its exact height is
+        # not known until it renders; half the content width is close enough
+        # and beats a fixed position that drifts when the window is resized.
+        vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
+        dpg.configure_item("wpn_pw_modal",
+                           pos=[max(0, vw // 2 - PW_MODAL_W // 2 - 20),
+                                max(0, vh // 2 - 90)],
+                           show=True)
+        dpg.focus_item("inp_wpn_pw")
 
     def cb_lock_confirm(s_, a, u):
         entered = dpg.get_value("inp_wpn_pw")
         if not password_matches(entered, _weapon_pw_hash):
             dpg.set_value("txt_wpn_pw_err", "Wrong password")
             dpg.set_value("inp_wpn_pw", "")
-            _log_add("Weapon unlock refused: wrong password")
+            _log_add("Password refused: wrong password")
             return
-        _gs["weapon_locked"] = False
         dpg.configure_item("wpn_pw_modal", show=False)
-        _log_add("Weapon UNLOCKED")
+        if _pw_purpose == "test":
+            # Bench test is standalone: come up disarmed with the weapon locked
+            # so the normal weapon path stays off and only the test path drives.
+            _test["enabled"]  = True
+            _test["deadline"] = time.time() + TEST_DEADMAN_S
+            _gs["armed"]         = False
+            _gs["weapon_locked"] = True
+            _gs["weapon_state"]  = "safe"
+            _log_add(f"Weapon TEST enabled: {_test['mag']}% "
+                     f"{'FWD' if _test['dir'] > 0 else 'REV'} - re-press within 5 s")
+        else:
+            _gs["weapon_locked"] = False
+            _log_add("Weapon UNLOCKED")
 
     def cb_lock_cancel(s_, a, u):
         dpg.configure_item("wpn_pw_modal", show=False)
 
     def cb_arm_click(s, a, u):
+        if _test["enabled"]:
+            _log_add("Stop the weapon test before arming")
+            return
         _gs["armed"] = not _gs["armed"]
         _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
+
+    def cb_kill_click(s_, a, u):
+        trigger_killswitch(link)
+
+    def cb_kill_reset(s_, a, u):
+        """Manual by design. The link is one-way, so the station cannot see
+        the robot power cycle; automatic recovery would be a guess. Reset
+        restarts from the safest state: disarmed, weapon locked."""
+        _gs["killswitch"] = False
+        _gs["armed"] = False
+        _gs["weapon_locked"] = True
+        _gs["weapon_state"] = "safe"
+        _test["enabled"] = False
+        _log_add("Killswitch reset - disarmed, weapon locked")
+
+    def cb_test_mag(s, val, u):
+        _test["mag"] = max(0, min(WPN_TEST_MAX, int(val)))
+        dpg.set_value("sl_test_mag", _test["mag"])
+        dpg.set_value("inp_test_mag", _test["mag"])
+
+    def cb_test_mag_inp(s, val, u): cb_test_mag(s, val, u)
+
+    def cb_test_dir(s, val, u):
+        _test["dir"] = 1 if val == "Forward" else -1
+
+    def cb_test_spin(s_, a, u):
+        """The deadman press. First press asks for the password; each press
+        after that extends the 5-second window."""
+        global _pw_purpose
+        if _gs["killswitch"]:
+            _log_add("Reset the killswitch before testing the weapon")
+            return
+        if not link.ensure_connected():
+            _log_add("WARNING: weapon test needs the serial link connected")
+            return
+        if _test["enabled"]:
+            _test["deadline"] = time.time() + TEST_DEADMAN_S
+            return
+        _pw_purpose = "test"
+        dpg.configure_item("wpn_pw_modal", label="Enable weapon test")
+        dpg.set_value("txt_pw_prompt",
+                      "Enter the weapon password to enable the bench test.")
+        dpg.set_value("inp_wpn_pw", "")
+        dpg.set_value("txt_wpn_pw_err", " ")
+        vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
+        dpg.configure_item("wpn_pw_modal",
+                           pos=[max(0, vw // 2 - PW_MODAL_W // 2 - 20),
+                                max(0, vh // 2 - 90)],
+                           show=True)
+        dpg.focus_item("inp_wpn_pw")
+
+    def cb_test_stop(s_, a, u):
+        if _test["enabled"]:
+            _test["enabled"] = False
+            _log_add("Weapon test stopped")
 
     def cb_save_trim(s_, a, u):
         """Push trim to the robot, which stores it in NVS and applies it.
@@ -346,196 +650,274 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
     def cb_mult_R_inc(s, a, u):   _sync_mult("R", _mult["R"] + 0.1)
     def cb_mult_R_dec(s, a, u):   _sync_mult("R", _mult["R"] - 0.1)
 
+    def _trim_row(label: str, key: str, cb, cb_inc, cb_dec, cb_inp):
+        with dpg.group(horizontal=True):
+            t = dpg.add_text(label, color=C_DIM[:3])
+            _use_font(t, F_SMALL)
+            dpg.add_button(label="-", width=24, callback=cb_dec)
+            dpg.add_slider_int(tag=f"sl_trim_{key}", min_value=-127, max_value=127,
+                               default_value=0, width=170, format="%d",
+                               callback=cb)
+            dpg.add_button(label="+", width=24, callback=cb_inc)
+            dpg.add_input_int(tag=f"inp_trim_{key}", default_value=0,
+                              min_value=-127, max_value=127,
+                              min_clamped=True, max_clamped=True,
+                              width=64, step=0, on_enter=True,
+                              callback=cb_inp)
+
+    def _mult_row(label: str, key: str, cb, cb_inc, cb_dec, cb_inp):
+        with dpg.group(horizontal=True):
+            t = dpg.add_text(label, color=C_DIM[:3])
+            _use_font(t, F_SMALL)
+            dpg.add_button(label="-", width=24, callback=cb_dec)
+            dpg.add_slider_float(tag=f"sl_mult_{key}", min_value=0.0, max_value=5.0,
+                                 default_value=1.0, width=170, format="%.2f",
+                                 callback=cb)
+            dpg.add_button(label="+", width=24, callback=cb_inc)
+            dpg.add_input_float(tag=f"inp_mult_{key}", default_value=1.0,
+                                min_value=0.0, max_value=5.0,
+                                min_clamped=True, max_clamped=True,
+                                width=64, step=0, on_enter=True,
+                                format="%.2f", callback=cb_inp)
+
     # ── Primary window ────────────────────────────────────────────────────────
     with dpg.window(tag="primary", no_title_bar=True, no_move=True,
                     no_resize=True, no_close=True, no_collapse=True,
                     no_scrollbar=True):
 
-        with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit,
-                       pad_outerX=False):
-            dpg.add_table_column(width_stretch=True)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=420)
-            with dpg.table_row():
-                with dpg.table_cell():
-                    dpg.add_text("HCR MISSION CONTROL", color=C_ACCENT[:3])
-                with dpg.table_cell():
-                    with dpg.group(horizontal=True):
-                        dpg.add_combo(
-                            tag="cmb_mode", width=170,
-                            items=MODE_NAMES,
-                            default_value=DRIVE_MODES[_mode_idx]["name"],
-                            callback=cb_mode_select)
+        # Brand + telemetry strip
+        with dpg.group(horizontal=True):
+            b = dpg.add_text("HCR MISSION CONTROL", color=C_ACCENT[:3])
+            _use_font(b, F_SMALL)
+            dpg.add_spacer(width=18)
+            t1 = dpg.add_text("SEARCHING...",   tag="txt_serial",  color=C_WARN[:3])
+            _use_font(t1, F_SMALL)
+            s1 = dpg.add_text(" | ", color=C_DIM[:3])
+            _use_font(s1, F_SMALL)
+            t2 = dpg.add_text("NO GAMEPAD",     tag="txt_gamepad", color=C_WARN[:3])
+            _use_font(t2, F_SMALL)
+            s2 = dpg.add_text(" | ", color=C_DIM[:3])
+            _use_font(s2, F_SMALL)
+            t3 = dpg.add_text("0.0 Hz | - ms",   tag="txt_stats",   color=C_DIM[:3])
+            _use_font(t3, F_MONO)
+
+        # State banner
+        with dpg.child_window(tag="banner_child", height=BANNER_H,
+                              border=False, no_scrollbar=True,
+                              no_scroll_with_mouse=True):
+            dpg.add_spacer(height=8)
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=16)
+                bt = dpg.add_text("DISARMED", tag="txt_banner",
+                                  color=(245, 247, 250))
+                _use_font(bt, F_BANNER)
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=17)
+                bs = dpg.add_text("outputs neutral", tag="txt_banner_sub",
+                                  color=(232, 236, 242, 190))
+                _use_font(bs, F_SMALL)
+        dpg.bind_item_theme("banner_child", _BANNER["disarmed"])
+
+        dpg.add_spacer(height=2)
 
         with dpg.group(horizontal=True):
-            dpg.add_text("o SEARCHING...",  tag="txt_serial",  color=C_WARN[:3])
-            dpg.add_text("  |  ",           color=C_DIM[:3])
-            dpg.add_text("o NO GAMEPAD",    tag="txt_gamepad", color=C_WARN[:3])
-            dpg.add_text("  |  ",           color=C_DIM[:3])
-            dpg.add_text("0.0 Hz  |  - ms", tag="txt_stats",   color=C_DIM[:3])
 
-        dpg.add_text(DRIVE_MODES[_mode_idx]["hint"], tag="txt_hint", color=C_DIM[:3])
-
-        dpg.add_separator()
-
-        with dpg.group(horizontal=True):
-
-            # ── Left: motor bars + expo curve ─────────────────────────────────
-            with dpg.child_window(width=LEFT_W, border=False,
-                                  no_scrollbar=True, tag="w_left"):
-                with dpg.group(horizontal=True):
-                    dpg.add_spacer(width=BAR_PAD)
-                    with dpg.group():
-                        _make_bar("L")
-                    dpg.add_spacer(width=10)
-                    with dpg.group():
-                        _make_bar("R")
-
-                dpg.add_spacer(height=4)
-                dpg.add_text("", tag="txt_stats2", color=C_DIM[:3], wrap=0)
-
-                dpg.add_spacer(height=6)
-                dpg.add_text("TRIM", color=C_DIM[:3])
-                with dpg.group(horizontal=True):
-                    dpg.add_text("L", color=C_DIM[:3])
-                    dpg.add_button(label="-", width=22, callback=cb_trim_L_dec)
-                    dpg.add_slider_int(tag="sl_trim_L", min_value=-127, max_value=127,
-                                       default_value=0, width=90, format="%d",
-                                       callback=cb_trim_L)
-                    dpg.add_button(label="+", width=22, callback=cb_trim_L_inc)
-                    dpg.add_input_int(tag="inp_trim_L", default_value=0,
-                                      min_value=-127, max_value=127,
-                                      min_clamped=True, max_clamped=True,
-                                      width=55, step=0, on_enter=True,
-                                      callback=cb_trim_L_inp)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("R", color=C_DIM[:3])
-                    dpg.add_button(label="-", width=22, callback=cb_trim_R_dec)
-                    dpg.add_slider_int(tag="sl_trim_R", min_value=-127, max_value=127,
-                                       default_value=0, width=90, format="%d",
-                                       callback=cb_trim_R)
-                    dpg.add_button(label="+", width=22, callback=cb_trim_R_inc)
-                    dpg.add_input_int(tag="inp_trim_R", default_value=0,
-                                      min_value=-127, max_value=127,
-                                      min_clamped=True, max_clamped=True,
-                                      width=55, step=0, on_enter=True,
-                                      callback=cb_trim_R_inp)
-                dpg.add_button(label="Save trim to robot", tag="btn_save_trim",
-                               callback=cb_save_trim, width=200)
-
-                dpg.add_spacer(height=6)
-                dpg.add_text("MULT", color=C_DIM[:3])
-                with dpg.group(horizontal=True):
-                    dpg.add_text("L", color=C_DIM[:3])
-                    dpg.add_button(label="-", width=22, callback=cb_mult_L_dec)
-                    dpg.add_slider_float(tag="sl_mult_L", min_value=0.0, max_value=5.0,
-                                         default_value=1.0, width=90, format="%.2f",
-                                         callback=cb_mult_L)
-                    dpg.add_button(label="+", width=22, callback=cb_mult_L_inc)
-                    dpg.add_input_float(tag="inp_mult_L", default_value=1.0,
-                                        min_value=0.0, max_value=5.0,
-                                        min_clamped=True, max_clamped=True,
-                                        width=55, step=0, on_enter=True,
-                                        format="%.2f", callback=cb_mult_L_inp)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("R", color=C_DIM[:3])
-                    dpg.add_button(label="-", width=22, callback=cb_mult_R_dec)
-                    dpg.add_slider_float(tag="sl_mult_R", min_value=0.0, max_value=5.0,
-                                         default_value=1.0, width=90, format="%.2f",
-                                         callback=cb_mult_R)
-                    dpg.add_button(label="+", width=22, callback=cb_mult_R_inc)
-                    dpg.add_input_float(tag="inp_mult_R", default_value=1.0,
-                                        min_value=0.0, max_value=5.0,
-                                        min_clamped=True, max_clamped=True,
-                                        width=55, step=0, on_enter=True,
-                                        format="%.2f", callback=cb_mult_R_inp)
-
-
-            dpg.add_spacer(width=8)
-
-            # ── Right: controls + indicators + log ────────────────────────────
-            with dpg.child_window(border=False, no_scrollbar=True, tag="w_right"):
-
-                dpg.add_text("CONTROLS", color=C_ACCENT[:3])
-                dpg.add_text("", tag="txt_controls", color=C_TEXT[:3], wrap=0)
-
-                dpg.add_separator()
-
+            # ── Left card: safety controls + drive ────────────────────────────
+            with dpg.child_window(width=LEFT_W, border=True, tag="w_left"):
+                _section("SAFETY")
+                dpg.add_button(label="ARM", tag="ind_armed",
+                               height=50, width=-1, callback=cb_arm_click)
+                dpg.add_button(label="UNLOCK WEAPON", tag="ind_wpn_lock",
+                               height=36, width=-1, callback=cb_lock_click)
+                dpg.add_button(label="KILL ROBOT", tag="btn_kill",
+                               height=36, width=-1, callback=cb_kill_click)
+                dpg.add_button(label="RESET KILLSWITCH", tag="btn_kill_reset",
+                               height=36, width=-1, show=False,
+                               callback=cb_kill_reset)
                 with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchSame,
                                pad_outerX=False, borders_outerH=False,
-                               borders_outerV=False, borders_innerV=False):
+                               borders_outerV=False, borders_innerV=False,
+                               borders_innerH=False):
+                    dpg.add_table_column()
                     dpg.add_table_column()
                     dpg.add_table_column()
                     with dpg.table_row():
-                        with dpg.table_cell():
-                            dpg.add_button(label="DISARMED", tag="ind_armed",
-                                           height=34, width=-1, callback=cb_arm_click)
                         with dpg.table_cell():
                             dpg.add_button(label="WEAPON SAFE", tag="ind_weapon",
-                                           height=34, width=-1)
-                    with dpg.table_row():
+                                           height=26, width=-1)
                         with dpg.table_cell():
                             dpg.add_button(label="DRIVE NORMAL", tag="ind_drive",
-                                           height=34, width=-1)
+                                           height=26, width=-1)
                         with dpg.table_cell():
-                            dpg.add_button(label="KILLSWITCH OFF", tag="ind_kill",
-                                           height=34, width=-1)
+                            dpg.add_button(label="KILL OFF", tag="ind_kill",
+                                           height=26, width=-1)
+
+                _section("DRIVE")
+                dpg.add_combo(tag="cmb_mode", width=-1, items=MODE_NAMES,
+                              default_value=DRIVE_MODES[_mode_idx]["name"],
+                              callback=cb_mode_select)
+                th = dpg.add_text(DRIVE_MODES[_mode_idx]["hint"], tag="txt_hint",
+                                  color=C_DIM[:3], wrap=LEFT_W - 32)
+                _use_font(th, F_SMALL)
+                dpg.add_spacer(height=4)
+                # Outer stretch columns centre the bars whatever the fonts do
+                # to the surrounding sizes; no spacer arithmetic to get wrong.
+                with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit,
+                               pad_outerX=False, borders_outerH=False,
+                               borders_outerV=False, borders_innerV=False,
+                               borders_innerH=False):
+                    dpg.add_table_column(width_stretch=True)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=BAR_W)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=BAR_W)
+                    dpg.add_table_column(width_stretch=True)
                     with dpg.table_row():
                         with dpg.table_cell():
-                            dpg.add_button(label="WEAPON LOCKED", tag="ind_wpn_lock",
-                                           height=34, width=-1, callback=cb_lock_click)
+                            dpg.add_spacer(width=1)
                         with dpg.table_cell():
-                            dpg.add_text("")
+                            _make_bar("L")
+                        with dpg.table_cell():
+                            _make_bar("R")
+                        with dpg.table_cell():
+                            dpg.add_spacer(width=1)
 
-                _set_ind("ind_armed",  "DISARMED",    "danger")
-                _set_ind("ind_weapon", "WEAPON SAFE", "panel")
-                _set_ind("ind_drive",  "DRIVE NORMAL",   "panel")
-                _set_ind("ind_kill",   "KILLSWITCH OFF", "panel")
-                _set_ind("ind_wpn_lock", "WEAPON LOCKED", "danger")
+            # ── Right card: setup + event log ─────────────────────────────────
+            with dpg.child_window(border=True, tag="w_right"):
+                _section("TRIM")
+                _trim_row("L", "L", cb_trim_L, cb_trim_L_inc, cb_trim_L_dec, cb_trim_L_inp)
+                _trim_row("R", "R", cb_trim_R, cb_trim_R_inc, cb_trim_R_dec, cb_trim_R_inp)
+                dpg.add_button(label="Save trim to robot", tag="btn_save_trim",
+                               callback=cb_save_trim, width=240, height=30)
 
-                with dpg.tooltip("ind_armed"):
-                    dpg.add_text("Click (or press arm key) to toggle arm state.")
-                    dpg.add_text("Robot ignores drive while DISARMED.")
-                with dpg.tooltip("ind_weapon"):
-                    dpg.add_text("SAFE   = weapon off         (byte 127)")
-                    dpg.add_text("IDLE   = spinning low fwd   (byte 160)")
-                    dpg.add_text("ATTACK = full speed fwd     (byte 255)")
-                    dpg.add_text("REV    = spinning low rev   (byte 95)")
-                    dpg.add_text("Atk/Rev key: hold in IDLE=attack, hold in SAFE=reverse spin.")
-                with dpg.tooltip("ind_wpn_lock"):
-                    dpg.add_text("Click to unlock the weapon (asks for a password).")
-                    dpg.add_text("While LOCKED the weapon is forced safe no matter")
-                    dpg.add_text("what the gamepad or keyboard does.")
-                    dpg.add_text("Re-locks automatically on disarm and on killswitch.")
-                    dpg.add_text("This guards against accidental activation. It is not")
-                    dpg.add_text("access control.")
-                with dpg.tooltip("ind_kill"):
-                    dpg.add_text("Sends failsafe byte=255.")
-                    dpg.add_text("Robot enters deep sleep — power cycle to recover.")
+                _section("OUTPUT MULTIPLIER")
+                _mult_row("L", "L", cb_mult_L, cb_mult_L_inc, cb_mult_L_dec, cb_mult_L_inp)
+                _mult_row("R", "R", cb_mult_R, cb_mult_R_inc, cb_mult_R_dec, cb_mult_R_inp)
 
-                dpg.add_separator()
+                with dpg.collapsing_header(label="WEAPON TEST (BENCH)",
+                                           tag="hdr_wtest", default_open=False):
+                    wt = dpg.add_text(
+                        "Spins the weapon at a set % with the wheels held "
+                        "neutral. Hold the deadman: SPIN must be re-pressed "
+                        "every 5 s or it stops. Killswitch stops it.",
+                        color=C_DIM[:3], wrap=0)
+                    _use_font(wt, F_SMALL)
+                    with dpg.group(horizontal=True):
+                        mt = dpg.add_text("%", color=C_DIM[:3])
+                        _use_font(mt, F_SMALL)
+                        dpg.add_slider_int(tag="sl_test_mag", min_value=0,
+                                           max_value=WPN_TEST_MAX, default_value=40,
+                                           width=150, format="%d", callback=cb_test_mag)
+                        dpg.add_input_int(tag="inp_test_mag", default_value=40,
+                                          min_value=0, max_value=WPN_TEST_MAX,
+                                          min_clamped=True, max_clamped=True,
+                                          width=64, step=0, on_enter=True,
+                                          callback=cb_test_mag_inp)
+                        dpg.add_radio_button(("Forward", "Reverse"), tag="rad_test_dir",
+                                             horizontal=True, callback=cb_test_dir)
+                    dpg.add_button(label="SPIN 40% FWD", tag="btn_test_spin",
+                                   height=40, width=-1, callback=cb_test_spin)
+                    dpg.add_button(label="STOP TEST", tag="btn_test_stop",
+                                   height=30, width=-1, callback=cb_test_stop)
+                    ts = dpg.add_text("", tag="txt_test_status", color=C_DIM[:3], wrap=0)
+                    _use_font(ts, F_SMALL)
+                with dpg.theme() as t_wt:
+                    with dpg.theme_component(dpg.mvCollapsingHeader):
+                        dpg.add_theme_color(dpg.mvThemeCol_Header,        (58, 40, 26))
+                        dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (72, 50, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,  (72, 50, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text,          C_WARN[:3])
+                dpg.bind_item_theme("hdr_wtest", t_wt)
 
-                dpg.add_text("EVENT LOG", color=C_ACCENT[:3])
-                with dpg.child_window(tag="w_log", height=-1,
-                                      border=False, horizontal_scrollbar=False):
-                    for i in range(LOG_N):
-                        dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3])
+                dpg.add_spacer(height=6)
+                # Collapsed by default: static reference the driver opens when
+                # needed, instead of permanently squeezing the event log.
+                with dpg.collapsing_header(label="KEYBINDS", tag="hdr_keys",
+                                           default_open=False):
+                    tc = dpg.add_text("", tag="txt_controls", color=C_DIM[:3], wrap=0)
+                    _use_font(tc, F_MONO)
+                with dpg.theme() as t_hdr:
+                    with dpg.theme_component(dpg.mvCollapsingHeader):
+                        dpg.add_theme_color(dpg.mvThemeCol_Header,        (40, 43, 53))
+                        dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (50, 54, 66))
+                        dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,  (50, 54, 66))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text,          C_DIM[:3])
+                dpg.bind_item_theme("hdr_keys", t_hdr)
+
+                _section("EVENT LOG")
+                with dpg.child_window(tag="w_log", height=-1, border=False,
+                                      horizontal_scrollbar=False):
+                    for i in range(LOG_SLOTS):
+                        lt = dpg.add_text("", tag=f"log_{i}", color=C_DIM[:3], show=False)
+                        _use_font(lt, F_MONO)
+                with dpg.theme() as t_log:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, C_WELL[:3])
+                dpg.bind_item_theme("w_log", t_log)
+
+        _set_ind("ind_armed",    "ARM",           "arm_ready")
+        _set_ind("ind_wpn_lock", "UNLOCK WEAPON", "lock_locked")
+        _set_ind("btn_kill",     "KILL ROBOT",    "kill_ready")
+        _set_ind("btn_kill_reset", "RESET KILLSWITCH", "kill_reset")
+        _set_ind("btn_test_spin", "SPIN 40% FWD", "test_ready")
+        dpg.set_value("rad_test_dir", "Forward")
+        _set_ind("ind_weapon",   "WEAPON SAFE",   "panel")
+        _set_ind("ind_drive",    "DRIVE NORMAL",  "panel")
+        _set_ind("ind_kill",     "KILL OFF",      "panel")
+
+        with dpg.tooltip("ind_armed"):
+            dpg.add_text("Click (or press the arm key) to toggle arm state.")
+            dpg.add_text("Robot ignores drive while DISARMED.")
+        with dpg.tooltip("ind_weapon"):
+            dpg.add_text("SAFE   = weapon off         (byte 127)")
+            dpg.add_text("IDLE   = spinning low fwd   (byte 160)")
+            dpg.add_text("ATTACK = full speed fwd     (byte 255)")
+            dpg.add_text("REV    = spinning low rev   (byte 95)")
+            dpg.add_text("Atk/Rev key: hold in IDLE=attack, hold in SAFE=reverse spin.")
+        with dpg.tooltip("ind_wpn_lock"):
+            dpg.add_text("Unlocking asks for the weapon password.")
+            dpg.add_text("Arm first: unlock is refused while disarmed.")
+            dpg.add_text("While unlocked the button pulses orange; clicking")
+            dpg.add_text("it again re-locks instantly, no password.")
+            dpg.add_text("While LOCKED the weapon is forced safe no matter")
+            dpg.add_text("what the gamepad or keyboard does.")
+            dpg.add_text("Re-locks automatically on disarm and on killswitch.")
+            dpg.add_text("This guards against accidental activation. It is not")
+            dpg.add_text("access control.")
+        with dpg.tooltip("ind_kill"):
+            dpg.add_text("Sends failsafe byte=255.")
+            dpg.add_text("Robot enters deep sleep - power cycle to recover.")
+        with dpg.tooltip("btn_kill"):
+            dpg.add_text("Latches the killswitch: failsafe byte 255 goes out")
+            dpg.add_text("immediately and with every packet after. The robot")
+            dpg.add_text("deep sleeps until it is power cycled.")
+        with dpg.tooltip("btn_kill_reset"):
+            dpg.add_text("Clears the STATION side of the killswitch, after you")
+            dpg.add_text("have power cycled the robot. The link is one-way, so")
+            dpg.add_text("the station cannot detect the power cycle itself.")
+            dpg.add_text("You come back disarmed with the weapon locked.")
+
+    # autosize rather than a fixed height: a hardcoded height that is even
+    # slightly too small makes DPG add a scrollbar and clip the buttons, which
+    # is what the first version of this did. Letting it size to its content
+    # cannot get that wrong, and no_scrollbar makes it impossible anyway.
+    with dpg.window(tag="wpn_pw_modal", label="Unlock weapon", modal=True,
+                    show=False, no_resize=True, no_scrollbar=True,
+                    no_collapse=True, autosize=True):
+        dpg.add_text("Enter the weapon password.", tag="txt_pw_prompt")
+        dpg.add_spacer(height=4)
+        dpg.add_input_text(tag="inp_wpn_pw", password=True, width=PW_MODAL_W,
+                           on_enter=True, callback=cb_lock_confirm)
+        # Always occupies a line, so showing an error does not shift the
+        # buttons out from under the cursor.
+        dpg.add_text(" ", tag="txt_wpn_pw_err", color=C_DANGER[:3])
+        dpg.add_spacer(height=4)
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Unlock", width=PW_MODAL_W // 2 - 4,
+                           callback=cb_lock_confirm)
+            dpg.add_button(label="Cancel", width=PW_MODAL_W // 2 - 4,
+                           callback=cb_lock_cancel)
 
     # Without this the HUD is an ordinary floating window: it renders inset
     # from the top-left with dead space around it and clips on the right.
-    with dpg.window(tag="wpn_pw_modal", label="Unlock weapon", modal=True,
-                    show=False, no_resize=True, width=340, height=170,
-                    pos=[260, 200]):
-        dpg.add_text("Enter the weapon password to unlock.")
-        dpg.add_text("The weapon stays safe until you do.", color=C_DIM[:3])
-        dpg.add_spacer(height=6)
-        dpg.add_input_text(tag="inp_wpn_pw", password=True, width=-1,
-                           on_enter=True, callback=cb_lock_confirm)
-        dpg.add_text("", tag="txt_wpn_pw_err", color=C_DANGER[:3])
-        dpg.add_spacer(height=6)
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Unlock", width=120, callback=cb_lock_confirm)
-            dpg.add_button(label="Cancel", width=120, callback=cb_lock_cancel)
-
     dpg.set_primary_window("primary", True)
 
 
@@ -543,26 +925,27 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
 def _update_ui(link: SerialLink, mapper: InputMapper,
                ml: int, mr: int) -> None:
+    global _log_shown_rev
 
     if link.state == "connected":
-        dpg.set_value("txt_serial", f"* SERIAL OK  ({link.port_name})")
+        dpg.set_value("txt_serial", f"SERIAL OK ({link.port_name})")
         dpg.configure_item("txt_serial", color=C_GOOD[:3])
     elif link.state == "searching":
-        dpg.set_value("txt_serial", "o SEARCHING...")
+        dpg.set_value("txt_serial", "SEARCHING...")
         dpg.configure_item("txt_serial", color=C_WARN[:3])
     else:
-        dpg.set_value("txt_serial", "x SERIAL LOST")
+        dpg.set_value("txt_serial", "SERIAL LOST")
         dpg.configure_item("txt_serial", color=C_DANGER[:3])
 
     if mapper.joystick_name:
-        dpg.set_value("txt_gamepad", f"* {mapper.joystick_name}")
+        dpg.set_value("txt_gamepad", f"{mapper.joystick_name}")
         dpg.configure_item("txt_gamepad", color=C_GOOD[:3])
     else:
-        dpg.set_value("txt_gamepad", "o KEYBOARD ONLY")
+        dpg.set_value("txt_gamepad", "KEYBOARD ONLY")
         dpg.configure_item("txt_gamepad", color=C_WARN[:3])
 
-    dpg.set_value("txt_stats",  f"{link.current_hz:.1f} Hz  |  {link.idle_ms} ms")
-    dpg.set_value("txt_stats2", f"L={ml}  R={mr}")
+    idle = "-" if not link.last_ok else str(link.idle_ms)
+    dpg.set_value("txt_stats", f"{link.current_hz:.1f} Hz | {idle} ms")
 
     _update_bar("L", ml)
     _update_bar("R", mr)
@@ -575,18 +958,31 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
         _gs["weapon_locked"] = True
 
     locked = _gs["weapon_locked"]
-    _set_ind("ind_wpn_lock",
-             "WEAPON LOCKED" if locked else "WEAPON UNLOCKED",
-             "danger" if locked else "warn")
+    armed  = _gs["armed"]
+    ws     = _gs["weapon_state"]
+    inv    = _gs["drive_inverted"]
+    kill   = _gs["killswitch"]
 
-    armed = _gs["armed"]
-    ws    = _gs["weapon_state"]
-    inv   = _gs["drive_inverted"]
-    kill  = _gs["killswitch"]
+    mode = DRIVE_MODES[_mode_idx]
+    keys = mode["keys"]
+    btns = mode["buttons"]
+    arm_key  = key_display(keys.get("arm", ""))
+    kill_key = key_display(keys.get("killswitch", ""))
 
+    # Buttons carry the ACTION a click performs; the banner carries the state.
     _set_ind("ind_armed",
-             "ARMED"    if armed else "DISARMED",
-             "good"     if armed else "danger")
+             f"DISARM  [{arm_key}]" if armed else f"ARM  [{arm_key}]",
+             "arm_live"             if armed else "arm_ready")
+    if locked:
+        _set_ind("ind_wpn_lock", "UNLOCK WEAPON", "lock_locked")
+    else:
+        # Pulse at 1 Hz while the weapon is live, so the unlocked state is
+        # visible from the corner of an eye. A click re-locks instantly.
+        pulse = "lock_hot" if int(time.time() * 2) % 2 else "lock_live"
+        _set_ind("ind_wpn_lock", "LOCK WEAPON", pulse)
+    _set_ind("btn_kill", f"KILL ROBOT  [{kill_key}]", "kill_ready")
+    dpg.configure_item("btn_kill", show=not kill)
+    dpg.configure_item("btn_kill_reset", show=kill)
     _set_ind("ind_weapon",
              {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK", "idle_rev": "WEAPON REV"}[ws],
              {"safe": "panel",       "idle": "warn",        "attack": "attack",         "idle_rev": "warn"}[ws])
@@ -594,17 +990,52 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
              "DRIVE INVERTED" if inv  else "DRIVE NORMAL",
              "warn"           if inv  else "panel")
     _set_ind("ind_kill",
-             "KILLSWITCH!"    if kill else "KILLSWITCH OFF",
+             "KILLSWITCH!"    if kill else "KILL OFF",
              "danger"         if kill else "panel")
 
-    lines = list(_log)
-    for i in range(LOG_N):
-        idx = len(lines) - LOG_N + i
-        dpg.set_value(f"log_{i}", lines[idx] if 0 <= idx < len(lines) else "")
+    now = time.time()
+    if _test["enabled"]:
+        remaining = max(0.0, _test["deadline"] - now)
+        dname = "FWD" if _test["dir"] > 0 else "REV"
+        pulse = "test_hot" if int(now * 2) % 2 else "test_live"
+        _set_ind("btn_test_spin", f"KEEP SPINNING  {remaining:0.1f}s", pulse)
+        dpg.set_value("txt_test_status",
+                      f"LIVE: {_test['mag']}% {dname} - re-press within {remaining:0.1f}s")
+        dpg.configure_item("txt_test_status", color=C_WARN[:3])
+    else:
+        dname = "FWD" if _test["dir"] > 0 else "REV"
+        _set_ind("btn_test_spin", f"SPIN {_test['mag']}% {dname}", "test_ready")
+        dpg.set_value("txt_test_status",
+                      "Idle. SPIN needs the password, then a re-press every 5 s.")
+        dpg.configure_item("txt_test_status", color=C_DIM[:3])
 
-    mode = DRIVE_MODES[_mode_idx]
-    keys = mode["keys"]
-    btns = mode["buttons"]
+    if kill:
+        _set_banner("KILLSWITCH LATCHED",
+                    "failsafe sent - power cycle the robot to recover", "kill")
+    elif _test["enabled"]:
+        _set_banner(f"WEAPON TEST  {_test['mag']}% {'FWD' if _test['dir'] > 0 else 'REV'}",
+                    f"bench test live - re-press SPIN within {max(0.0, _test['deadline'] - now):0.1f}s",
+                    "test")
+    elif armed and not locked:
+        _set_banner("ARMED - WEAPON LIVE", "weapon controls enabled", "live")
+    elif armed:
+        _set_banner("ARMED", "drive live - weapon locked", "armed")
+    else:
+        _set_banner("DISARMED",
+                    f"outputs neutral - press [{arm_key}] or click ARM to go live",
+                    "disarmed")
+
+    if _log_shown_rev != _log_rev:
+        _log_shown_rev = _log_rev
+        lines = list(_log)
+        for i in range(LOG_SLOTS):
+            idx = len(lines) - 1 - i
+            if idx >= 0:
+                s = lines[idx]
+                dpg.set_value(f"log_{i}", s)
+                dpg.configure_item(f"log_{i}", color=_log_color(s, i == 0), show=True)
+            else:
+                dpg.configure_item(f"log_{i}", show=False)
 
     def _fmt(label: str, action: str) -> str:
         k = key_display(keys.get(action, ""))
@@ -665,6 +1096,8 @@ def main() -> None:
     _safety = cfg.get("safety", {})
     _weapon_pw_hash   = _safety.get("weapon_password_sha256", "")
     _relock_on_disarm = _safety.get("relock_on_disarm", True)
+    global _failsafe_on_dongle_removal
+    _failsafe_on_dongle_removal = _safety.get("failsafe_on_dongle_removal", True)
     if not _weapon_pw_hash:
         _log_add("No weapon password set - unlock needs only a confirmation")
 
@@ -675,7 +1108,7 @@ def main() -> None:
     dpg.create_viewport(
         title="HCR Mission Control",
         width=cfg["ui"]["width"], height=cfg["ui"]["height"],
-        resizable=True, min_width=640, min_height=400,
+        resizable=True, min_width=960, min_height=640,
     )
     dpg.setup_dearpygui()
     dpg.show_viewport()
@@ -694,6 +1127,7 @@ def main() -> None:
     rate_hz   = cfg["serial"]["rate_hz"]
     last_send = 0.0
     prev_inv = prev_arm = prev_wpn = False
+    prev_link_connected = (link.state == "connected")
 
     while dpg.is_dearpygui_running():
         now = time.time()
@@ -702,6 +1136,8 @@ def main() -> None:
             msg = mapper.handle_event(event)
             if msg:
                 _log_add(msg)
+
+        mapper.kb_blocked = keyboard_captured()
 
         inv_raw  = mapper.read_button("drive_invert")
         kill_raw = mapper.read_button("killswitch")
@@ -722,17 +1158,18 @@ def main() -> None:
             invert=_gs["drive_inverted"],
         )
 
-        if kill_raw and not _gs["killswitch"]:
-            _gs["killswitch"] = True
-            _log_add("KILLSWITCH - robot latched until power cycle")
-            burst = b"7f7f7fff\n"
-            if link.ensure_connected():
-                for _ in range(5):
-                    link.send(burst)
-            else:
-                _log_add("WARNING: killswitch sent but serial not connected")
+        if kill_raw:
+            trigger_killswitch(link)
 
-        if arm_raw and not prev_arm:
+        if _test["enabled"] and now >= _test["deadline"]:
+            _test["enabled"] = False
+            _log_add("Weapon test deadman expired - weapon off")
+        if _gs["killswitch"]:
+            _test["enabled"] = False
+        test_spinning = test_should_spin(_test["enabled"], now, _test["deadline"],
+                                         _gs["killswitch"], link.state == "connected")
+
+        if arm_raw and not prev_arm and not _test["enabled"]:
             _gs["armed"] = not _gs["armed"]
             _log_add(f"Robot {'ARMED' if _gs['armed'] else 'DISARMED'}")
 
@@ -763,7 +1200,10 @@ def main() -> None:
         prev_wpn     = wpn_btn
 
         if now - last_send >= 1.0 / rate_hz:
-            pkt = _hex_packet(motor_l, motor_r, weapon_byte, fs_byte)
+            if test_spinning:
+                pkt = weapon_test_packet(_test["mag"] * _test["dir"])
+            else:
+                pkt = _hex_packet(motor_l, motor_r, weapon_byte, fs_byte)
             was_searching = link.state == "searching"
             if link.ensure_connected():
                 if was_searching:
@@ -776,6 +1216,14 @@ def main() -> None:
                 else:
                     _log_add("Serial write failed")
             last_send = now
+
+        now_connected = (link.state == "connected")
+        if dongle_pull_kills(prev_link_connected, now_connected,
+                             _failsafe_on_dongle_removal, _gs["killswitch"]):
+            _gs["killswitch"] = True
+            _test["enabled"] = False
+            _log_add("Dongle disconnected - failsafe latched, robot killed on reconnect")
+        prev_link_connected = now_connected
 
         _update_ui(link, mapper, motor_l, motor_r)
 

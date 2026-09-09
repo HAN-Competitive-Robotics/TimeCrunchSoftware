@@ -31,7 +31,9 @@
 // the measured figure is inside the limit with margin. Then re-check on a
 // fresh pack, because a fully charged battery spins faster at the same
 // throttle percentage.
-#define WEAPON_MAX_OUTPUT_PCT   60.0f
+#ifndef WEAPON_MAX_OUTPUT_PCT
+#define WEAPON_MAX_OUTPUT_PCT   100.0f
+#endif
 
 // ---------------------------------------------------------------------------
 // Open-loop fallback levels
@@ -43,7 +45,7 @@
 // Both are clamped by WEAPON_MAX_OUTPUT_PCT, so raising them cannot breach the
 // ceiling above.
 #define WEAPON_OL_IDLE_PCT      30.0f
-#define WEAPON_OL_ATTACK_PCT    50.0f
+#define WEAPON_OL_ATTACK_PCT    100.0f
 
 // Closed-loop gains. Both zero ships the historical open-loop behaviour.
 //
@@ -91,6 +93,13 @@ void weapon_controller_reset(void);
 
 // Run one control step and drive the weapon ESC. Call at 100 Hz.
 void weapon_controller_update(void);
+
+// Wireless bench test: command a direct open-loop throttle percentage rather
+// than a speed. |pct| is clamped by WEAPON_MAX_OUTPUT_PCT and the actuator
+// range; the sign selects direction. No RPM loop runs (the operator is setting
+// a throttle, not a target speed), and the integrator is cleared so a later
+// return to closed-loop control does not resume against a stale integral.
+void weapon_controller_test(int pct);
 
 // Magnitude of the most recent commanded output, 0..100. Used by the safety
 // monitor to decide whether the weapon is being driven hard enough that the

@@ -46,6 +46,7 @@ The driver station sends only three values in practice: `0`, `64`, `255`. The by
 |---|---|
 | 0 | Normal drive packet |
 | 1 | Set trim (see below) |
+| 2 | Weapon bench test (see below) |
 | 255 | Deep sleep command |
 
 The firmware checks `failsafe_raw > 127`, so any value ≥ 128 triggers the killswitch. The threshold provides robustness against single-bit errors.
@@ -68,6 +69,30 @@ The magic byte in byte 2 means a corrupted drive packet cannot silently retrim t
 The link is one-way, so there is no acknowledgement and no way to read the stored trim back. The station therefore sends the command five times, and a freshly started station shows `0` until the operator adjusts it, regardless of what the robot has saved. The robot logs its trim at boot.
 
 The station refuses to send this while armed. The robot cannot check that itself, since arm state is not on the wire.
+
+**Weapon bench test (opcode 2)**
+
+A wireless replacement for the USB weapon-motor bench test: spin the weapon at a
+set percentage from the driver station, with every radio failsafe underneath it.
+
+| Byte | Meaning |
+|---|---|
+| 0 | 127 + signed throttle percent (sign = direction) |
+| 1 | `0` |
+| 2 | `0xA7` magic |
+| 3 | `2` |
+
+The robot forces the wheels neutral and drives the weapon open-loop at the
+requested percent, clamped by `WEAPON_MAX_OUTPUT_PCT`. The magic in byte 2 is
+the same guard as trim: a corrupted drive packet cannot be mistaken for a
+spin-up command.
+
+The station only emits these packets while its 5-second deadman is held, so the
+weapon stops the instant the operator stops re-pressing, the link drops (normal
+link-loss timeout), or any ordinary packet arrives (which clears test mode on
+the robot). A killswitch is a separate packet with byte 3 > 127 and overrides
+everything, as always. Because the link is one-way, the robot never needs to
+know the test exists beyond acting on the packets it receives.
 
 ### Encoding Notes
 

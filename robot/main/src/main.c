@@ -28,6 +28,8 @@ typedef struct {
     bool    failsafe_active;
     bool    packet_received;
     bool    hard_failsafe;   /* latches permanently on explicit failsafe  only power cycle clears */
+    bool    weapon_test_active;  /* wireless bench test: drive weapon at weapon_test_pct */
+    int8_t  weapon_test_pct;     /* signed throttle percent, -100..100; sign = direction */
 } robot_state_t;
 
 static QueueHandle_t  state_queue;
@@ -171,6 +173,28 @@ void task_radio(void *pvParameters)
                         continue;
                     }
 
+                    /* Wireless weapon bench test. Wheels are forced neutral and
+                     * the weapon is driven open-loop at the requested percent.
+                     * A killswitch is a separate packet (byte 3 > 127) and is
+                     * handled below, so it always wins over this. */
+                    if (failsafe_raw == PACKET_OPCODE_WEAPON_TEST) {
+                        if (weapon_raw != WEAPON_TEST_MAGIC) {
+                            ESP_LOGW(TAG, "Weapon-test command with bad magic 0x%02X — ignored",
+                                     weapon_raw);
+                        } else if (!state.hard_failsafe) {
+                            int pct = (int)left_raw - PACKET_CENTER;
+                            state.weapon_test_active = true;
+                            state.weapon_test_pct    = (int8_t)pct;
+                            state.failsafe_active     = false;
+                            state.packet_received     = true;
+                            motor_set_throttle(MOTOR_LEFT_WHEEL,  0);
+                            motor_set_throttle(MOTOR_RIGHT_WHEEL, 0);
+                            xQueueOverwrite(state_queue, &state);
+                            ESP_LOGD(TAG, "Weapon test: %d%%", pct);
+                        }
+                        continue;
+                    }
+
 #if THERMAL_PROTECTION_ENABLED
                     bool temp_critical = temp_get_temperature(TEMP_LEFT_WHEEL)  >= KILLSWITCH_TEMP_C ||
                                         temp_get_temperature(TEMP_RIGHT_WHEEL) >= KILLSWITCH_TEMP_C ||
@@ -233,6 +257,7 @@ void task_radio(void *pvParameters)
                         int right = map_byte_to_throttle(trim_apply(right_raw, tr.right));
 
                         state.weapon_throttle = weapon_raw;
+                        state.weapon_test_active = false;
                         state.failsafe_active = false;
                         motor_set_throttle(MOTOR_LEFT_WHEEL,
                                            MOTOR_INVERT_LEFT  ? -left  : left);
@@ -258,6 +283,7 @@ void task_radio(void *pvParameters)
 
             stats.timeouts++;
             state.weapon_throttle = 0;
+            state.weapon_test_active = false;
             state.failsafe_active = true;
             state.packet_received = false;
             xQueueOverwrite(state_queue, &state);
@@ -291,8 +317,15 @@ void task_weapon(void *pvParameters)
         }
 
         /* Weapon: 127=off, 0-63=attack rev, 64-126=idle rev, 128-190=idle, 191-255=attack */
-        if (state.hard_failsafe || state.failsafe_active || !state.packet_received ||
-            state.weapon_throttle == 127 || safety_weapon_inhibited()) {
+        bool weapon_must_stop = state.hard_failsafe || state.failsafe_active ||
+                                !state.packet_received || safety_weapon_inhibited();
+        if (weapon_must_stop) {
+            weapon_controller_reset();
+            motor_set_throttle(MOTOR_WEAPON, 0);
+        } else if (state.weapon_test_active) {
+            /* Direct open-loop percent, ceiling-clamped inside the controller. */
+            weapon_controller_test(state.weapon_test_pct);
+        } else if (state.weapon_throttle == 127) {
             weapon_controller_reset();
             motor_set_throttle(MOTOR_WEAPON, 0);
         } else if (state.weapon_throttle >= 191 || state.weapon_throttle <= 63) {
