@@ -56,10 +56,8 @@ C_FWD    = [52,  214, 110, 255]
 C_REV    = [222, 84,  74,  255]
 
 # ─── Fonts ───────────────────────────────────────────────────────────────────
-# DearPyGui's built-in bitmap font is 13 px and looks like a debug overlay, so
-# load a real system font when one exists. Every path is optional: on a machine
-# with none of them the UI falls back to the default font and merely looks
-# plainer. WSL note: scripts/setup-wsl.sh installs fonts-dejavu-core.
+# Load a real system font when one exists; falls back to DPG's bitmap font.
+# WSL: scripts/setup-wsl.sh installs fonts-dejavu-core.
 F_BODY = F_SMALL = F_MONO = F_BANNER = None
 
 
@@ -142,6 +140,25 @@ def _log_add(msg: str) -> None:
     _log_rev += 1
 
 
+PORT_AUTO = "Auto (find dongle)"
+
+
+def _port_items(link) -> list:
+    """Combo items: Auto first, then every serial port with its description and
+    a [DONGLE] flag on the one whose USB ID matches the radio dongle."""
+    items = [PORT_AUTO]
+    for dev, desc, is_dongle in link.list_ports():
+        items.append(f"{dev} | {desc}" + ("  [DONGLE]" if is_dongle else ""))
+    return items
+
+
+def _port_from_item(item: str) -> str:
+    """Selected combo string back to a device name, or 'auto'."""
+    if item.startswith("Auto"):
+        return "auto"
+    return item.split(" | ", 1)[0].strip()
+
+
 def _log_color(line: str, newest: bool) -> list:
     if "KILL" in line:
         return C_DANGER[:3]
@@ -158,9 +175,7 @@ OPCODE_WEAPON_TEST = 2
 TRIM_MAGIC         = 0x5A
 WEAPON_TEST_MAGIC  = 0xA7
 
-# Mirror of WEAPON_MAX_OUTPUT_PCT in robot/main/include/weapon_controller.h.
-# The robot clamps to its own ceiling regardless, so this only keeps the UI
-# from offering a number the firmware will silently cut down.
+# Mirror of WEAPON_MAX_OUTPUT_PCT; the robot clamps anyway.
 WPN_TEST_MAX   = 100
 TEST_DEADMAN_S = 5.0
 
@@ -174,32 +189,20 @@ NEUTRAL = 127
 
 
 def password_matches(entered: str, expected_sha256: str) -> bool:
-    """Constant-time-ish comparison of the entered password against the stored
-    hash. An empty stored hash means no password is configured, in which case
-    the deliberate click-through is the whole interlock."""
+    """Empty stored hash means no password: the click-through is the interlock."""
     if not expected_sha256:
         return True
     return hashlib.sha256(entered.encode()).hexdigest() == expected_sha256
 
 
 def weapon_permitted(armed: bool, killswitch_latched: bool, weapon_locked: bool) -> bool:
-    """The weapon may only spin when armed, not killed, and explicitly unlocked.
-
-    The lock exists because the weapon is one keypress away at all times. It
-    stops a bumped gamepad button or a mistaken Space from spinning a disc; it
-    is not access control, and the config file says so.
-    """
+    """Weapon may spin only when armed, not killed, and unlocked. The lock
+    guards against an accidental keypress; it is not access control."""
     return armed and not killswitch_latched and not weapon_locked
 
 
 def outputs_inhibited(armed: bool, killswitch_latched: bool) -> bool:
-    """True when nothing may be commanded, whatever the sticks say.
-
-    Both conditions matter. Disarmed is the obvious one. A latched killswitch
-    is the important one: the robot should already be asleep from the failsafe
-    byte, but if that byte is ever missed or the robot fails to act on it, the
-    station must not still be streaming live throttle values at it.
-    """
+    """Nothing may be commanded when disarmed or killed, whatever the sticks say."""
     return killswitch_latched or not armed
 
 
@@ -216,42 +219,28 @@ def trim_packet(trim_l: int, trim_r: int) -> bytes:
 
 
 def weapon_test_packet(signed_pct: int) -> bytes:
-    """Encode a wireless weapon-test command. Percent is offset by 127 (sign =
-    direction), byte 2 carries the magic, byte 3 the opcode. The robot forces
-    the wheels neutral and drives the weapon open-loop at this percent."""
+    """Wireless weapon-test command: percent (127-centred, sign = direction),
+    magic in byte 2, opcode in byte 3."""
     p = max(-100, min(100, signed_pct))
     return _hex_packet(max(0, min(255, 127 + p)), 0, WEAPON_TEST_MAGIC, OPCODE_WEAPON_TEST)
 
 
 def test_should_spin(enabled: bool, now: float, deadline: float,
                      killswitch_latched: bool, connected: bool) -> bool:
-    """The weapon test spins only while enabled, connected, not killed, and
-    inside the 5-second deadman window. Every one of these dropping stops it:
-    the deadman lapsing, the link dropping, or the killswitch latching."""
+    """Spin only while enabled, connected, not killed, and inside the deadman."""
     return bool(enabled and connected and not killswitch_latched and now < deadline)
 
 
 def dongle_pull_kills(prev_connected: bool, now_connected: bool,
                       enabled: bool, already_latched: bool) -> bool:
-    """Latch a killswitch when the dongle drops off USB (connected -> not).
-
-    The station's serial link is to the dongle over USB, not to the robot, so
-    this fires on USB removal only. An RF dropout leaves the dongle enumerated
-    and the serial link up, so mid-match radio blips do NOT trigger this and
-    stay recoverable exactly as before. Once latched, the loop sends failsafe
-    255 with every packet, so the moment the dongle is plugged back in the
-    robot is commanded into deep sleep."""
+    """Latch on USB removal (connected -> not). An RF dropout keeps the USB
+    link up, so radio blips don't trigger this and stay recoverable."""
     return enabled and prev_connected and not now_connected and not already_latched
 
 
 def trigger_killswitch(link: SerialLink) -> None:
-    """Latch the killswitch and burst the failsafe byte at the robot.
-
-    One shared path for the physical key, the gamepad button, and the UI
-    button, so they cannot drift apart. Idempotent: once latched, later
-    calls do nothing. The per-frame packet keeps carrying failsafe 255 for
-    as long as the latch stands; the burst covers the moment of activation.
-    """
+    """Latch the killswitch and burst failsafe 255. Shared by key, gamepad, and
+    UI button. Idempotent."""
     if _gs["killswitch"]:
         return
     _gs["killswitch"] = True
@@ -269,15 +258,9 @@ _TEXT_INPUTS = ("inp_wpn_pw", "inp_trim_L", "inp_trim_R",
 
 
 def keyboard_captured() -> bool:
-    """True while typing belongs to a text field rather than the robot.
-
-    The keyboard is read by global polling, so without this gate, typing the
-    weapon password would arm, steer, and even killswitch the robot: password
-    characters are also control keys. While the unlock dialog is open or any
-    number box is being edited, every keyboard binding reads as released.
-    The gamepad and the on-screen buttons stay live throughout, so the
-    killswitch is never out of reach.
-    """
+    """True while a text field owns the keyboard. Keys are polled globally, so
+    without this, typing the password (its chars are control keys) would drive
+    the robot. Gamepad and on-screen buttons stay live."""
     if dpg.is_item_shown("wpn_pw_modal"):
         return True
     return any(dpg.is_item_active(t) for t in _TEXT_INPUTS)
@@ -286,8 +269,7 @@ def keyboard_captured() -> bool:
 # ─── Indicator and button themes ─────────────────────────────────────────────
 
 def _make_ind_themes() -> None:
-    # (bg, text) or (bg, text, hover). Indicators keep hover == bg so they do
-    # not pretend to be clickable; the two real buttons brighten on hover.
+    # (bg, text[, hover]). Indicators keep hover == bg; real buttons brighten.
     specs: dict[str, tuple] = {
         "panel":       ((44,  47,  58),  (168, 174, 184)),
         "good":        ((36,  150, 82),  (232, 255, 238)),
@@ -337,8 +319,7 @@ def _make_banner_themes() -> None:
 
 
 def _set_banner(main: str, sub: str, state: str) -> None:
-    """One loud line for the whole station state. Buttons say the action they
-    perform; this banner is the single place that says what the state IS."""
+    """The one line that states the overall state (buttons say actions)."""
     global _banner_shown
     key = (main, sub, state)
     if key == _banner_shown:
@@ -405,18 +386,9 @@ def _section(label: str) -> None:
 
 
 def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
-    """Builds the HUD.
-
-    Layout model: a full-width state banner on top, then two cards. The left
-    card is fixed width and holds everything used mid-match (safety controls,
-    drive mode, motor bars, keybinds). The right card stretches with the
-    window and holds setup controls and the event log, which absorbs all the
-    leftover space instead of leaving it empty.
-
-    Drive mode changes only through the dropdown. There is deliberately no
-    keyboard shortcut: a hidden key that silently swaps the control layout
-    mid-match is a hazard, not a convenience.
-    """
+    """Build the HUD: state banner on top, fixed left card (mid-match controls),
+    stretching right card (setup + event log). Mode changes only via the
+    dropdown, never a hidden key."""
     _load_fonts()
 
     with dpg.theme() as g_theme:
@@ -461,12 +433,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
     def _apply_mode() -> None:
-        """Everything that has to happen when the drive mode changes.
-
-        Weapon is re-safed and invert cleared, because a control layout change
-        mid-match should never leave the weapon spun up under a binding the
-        driver has not adjusted to yet.
-        """
+        """On mode change, re-safe the weapon and clear invert."""
         mode = DRIVE_MODES[_mode_idx]
         mapper.set_mode(mode)
         _gs["drive_inverted"] = False
@@ -480,6 +447,17 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _mode_idx = index_of(val)
         _apply_mode()
 
+    def cb_port_select(s, val, u):
+        port = _port_from_item(val)
+        link.set_port(port)
+        _log_add("Serial port set to auto (match dongle by USB ID)"
+                 if port == "auto" else f"Serial port set to {port}")
+
+    def cb_port_rescan(s, a, u):
+        items = _port_items(link)
+        dpg.configure_item("cmb_port", items=items)
+        _log_add(f"Rescanned serial ports: {len(items) - 1} found")
+
     def cb_lock_click(s_, a, u):
         """Locking never needs a password. Unlocking always does."""
         global _pw_purpose
@@ -492,9 +470,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             _log_add("Stop the weapon test before unlocking for drive")
             return
         if _relock_on_disarm and not _gs["armed"]:
-            # An unlock done while disarmed is undone within a frame by the
-            # relock-on-disarm rule, which looks like the button silently
-            # doing nothing. Refuse with an explanation instead.
+            # Unlocking while disarmed is undone next frame by relock-on-disarm.
             _log_add("Arm first - the weapon stays locked while disarmed")
             return
         _pw_purpose = "unlock"
@@ -502,9 +478,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         dpg.set_value("txt_pw_prompt", "Enter the weapon password.")
         dpg.set_value("inp_wpn_pw", "")
         dpg.set_value("txt_wpn_pw_err", " ")
-        # Centre on the viewport. The modal is autosized so its exact height is
-        # not known until it renders; half the content width is close enough
-        # and beats a fixed position that drifts when the window is resized.
+        # Roughly centre on the viewport (autosized, so exact height is unknown).
         vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
         dpg.configure_item("wpn_pw_modal",
                            pos=[max(0, vw // 2 - PW_MODAL_W // 2 - 20),
@@ -521,8 +495,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             return
         dpg.configure_item("wpn_pw_modal", show=False)
         if _pw_purpose == "test":
-            # Bench test is standalone: come up disarmed with the weapon locked
-            # so the normal weapon path stays off and only the test path drives.
+            # Bench test is standalone: disarmed + locked so only the test drives.
             _test["enabled"]  = True
             _test["deadline"] = time.time() + TEST_DEADMAN_S
             _gs["armed"]         = False
@@ -558,19 +531,26 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         _test["enabled"] = False
         _log_add("Killswitch reset - disarmed, weapon locked")
 
+    def _test_keepalive():
+        # Adjusting the test while it's running counts as active presence.
+        if _test["enabled"]:
+            _test["deadline"] = time.time() + TEST_DEADMAN_S
+
     def cb_test_mag(s, val, u):
         _test["mag"] = max(0, min(WPN_TEST_MAX, int(val)))
         dpg.set_value("sl_test_mag", _test["mag"])
         dpg.set_value("inp_test_mag", _test["mag"])
+        _test_keepalive()
 
     def cb_test_mag_inp(s, val, u): cb_test_mag(s, val, u)
 
     def cb_test_dir(s, val, u):
         _test["dir"] = 1 if val == "Forward" else -1
+        _test_keepalive()
 
     def cb_test_spin(s_, a, u):
-        """The deadman press. First press asks for the password; each press
-        after that extends the 5-second window."""
+        """Deadman press. Password once to start the session; after that each
+        press extends or resumes the 5 s window with no password."""
         global _pw_purpose
         if _gs["killswitch"]:
             _log_add("Reset the killswitch before testing the weapon")
@@ -600,13 +580,8 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             _log_add("Weapon test stopped")
 
     def cb_save_trim(s_, a, u):
-        """Push trim to the robot, which stores it in NVS and applies it.
-
-        Refused while armed: the robot cannot tell a trim packet from a drive
-        packet being unsafe to act on, so the guard has to live here. Sent
-        several times because the link is one-way and lossy, and there is no
-        acknowledgement to wait for.
-        """
+        """Push trim to the robot (it saves to NVS). Refused while armed; sent
+        several times since the link is one-way and lossy."""
         if _gs["armed"]:
             _log_add("Disarm before saving trim")
             return
@@ -700,6 +675,12 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             _use_font(s2, F_SMALL)
             t3 = dpg.add_text("0.0 Hz | - ms",   tag="txt_stats",   color=C_DIM[:3])
             _use_font(t3, F_MONO)
+            dpg.add_spacer(width=18)
+            pl = dpg.add_text("Port", color=C_DIM[:3])
+            _use_font(pl, F_SMALL)
+            dpg.add_combo(tag="cmb_port", width=250, items=_port_items(link),
+                          default_value=PORT_AUTO, callback=cb_port_select)
+            dpg.add_button(label="Rescan", callback=cb_port_rescan)
 
         # State banner
         with dpg.child_window(tag="banner_child", height=BANNER_H,
@@ -760,8 +741,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                                   color=C_DIM[:3], wrap=LEFT_W - 32)
                 _use_font(th, F_SMALL)
                 dpg.add_spacer(height=4)
-                # Outer stretch columns centre the bars whatever the fonts do
-                # to the surrounding sizes; no spacer arithmetic to get wrong.
+                # Stretch columns centre the bars without spacer arithmetic.
                 with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit,
                                pad_outerX=False, borders_outerH=False,
                                borders_outerV=False, borders_innerV=False,
@@ -828,8 +808,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
                 dpg.bind_item_theme("hdr_wtest", t_wt)
 
                 dpg.add_spacer(height=6)
-                # Collapsed by default: static reference the driver opens when
-                # needed, instead of permanently squeezing the event log.
+                # Collapsed by default so it doesn't squeeze the event log.
                 with dpg.collapsing_header(label="KEYBINDS", tag="hdr_keys",
                                            default_open=False):
                     tc = dpg.add_text("", tag="txt_controls", color=C_DIM[:3], wrap=0)
@@ -895,10 +874,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             dpg.add_text("the station cannot detect the power cycle itself.")
             dpg.add_text("You come back disarmed with the weapon locked.")
 
-    # autosize rather than a fixed height: a hardcoded height that is even
-    # slightly too small makes DPG add a scrollbar and clip the buttons, which
-    # is what the first version of this did. Letting it size to its content
-    # cannot get that wrong, and no_scrollbar makes it impossible anyway.
+    # autosize + no_scrollbar: a fixed height that's too small clips the buttons.
     with dpg.window(tag="wpn_pw_modal", label="Unlock weapon", modal=True,
                     show=False, no_resize=True, no_scrollbar=True,
                     no_collapse=True, autosize=True):
@@ -906,8 +882,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
         dpg.add_spacer(height=4)
         dpg.add_input_text(tag="inp_wpn_pw", password=True, width=PW_MODAL_W,
                            on_enter=True, callback=cb_lock_confirm)
-        # Always occupies a line, so showing an error does not shift the
-        # buttons out from under the cursor.
+        # Always one line, so an error doesn't shift the buttons.
         dpg.add_text(" ", tag="txt_wpn_pw_err", color=C_DANGER[:3])
         dpg.add_spacer(height=4)
         with dpg.group(horizontal=True):
@@ -916,8 +891,7 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             dpg.add_button(label="Cancel", width=PW_MODAL_W // 2 - 4,
                            callback=cb_lock_cancel)
 
-    # Without this the HUD is an ordinary floating window: it renders inset
-    # from the top-left with dead space around it and clips on the right.
+    # Primary window, else the HUD floats inset with dead space around it.
     dpg.set_primary_window("primary", True)
 
 
@@ -950,8 +924,7 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     _update_bar("L", ml)
     _update_bar("R", mr)
 
-    # Re-lock whenever the weapon may not run anyway, so unlocking is always a
-    # deliberate act rather than something left over from earlier in the match.
+    # Re-lock whenever the weapon can't run, so unlocking is always deliberate.
     if _relock_on_disarm and not _gs["armed"]:
         _gs["weapon_locked"] = True
     if _gs["killswitch"]:
@@ -976,8 +949,7 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     if locked:
         _set_ind("ind_wpn_lock", "UNLOCK WEAPON", "lock_locked")
     else:
-        # Pulse at 1 Hz while the weapon is live, so the unlocked state is
-        # visible from the corner of an eye. A click re-locks instantly.
+        # Pulse at 1 Hz while live so the unlocked state is obvious.
         pulse = "lock_hot" if int(time.time() * 2) % 2 else "lock_live"
         _set_ind("ind_wpn_lock", "LOCK WEAPON", pulse)
     _set_ind("btn_kill", f"KILL ROBOT  [{kill_key}]", "kill_ready")
@@ -994,28 +966,33 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
              "danger"         if kill else "panel")
 
     now = time.time()
-    if _test["enabled"]:
-        remaining = max(0.0, _test["deadline"] - now)
-        dname = "FWD" if _test["dir"] > 0 else "REV"
+    dname = "FWD" if _test["dir"] > 0 else "REV"
+    remaining = max(0.0, _test["deadline"] - now)
+    test_live = _test["enabled"] and remaining > 0.0
+    if test_live:
         pulse = "test_hot" if int(now * 2) % 2 else "test_live"
         _set_ind("btn_test_spin", f"KEEP SPINNING  {remaining:0.1f}s", pulse)
         dpg.set_value("txt_test_status",
                       f"LIVE: {_test['mag']}% {dname} - re-press within {remaining:0.1f}s")
         dpg.configure_item("txt_test_status", color=C_WARN[:3])
+    elif _test["enabled"]:
+        _set_ind("btn_test_spin", f"RESUME {_test['mag']}% {dname}", "test_ready")
+        dpg.set_value("txt_test_status", "Paused - press SPIN to resume (no password)")
+        dpg.configure_item("txt_test_status", color=C_DIM[:3])
     else:
-        dname = "FWD" if _test["dir"] > 0 else "REV"
         _set_ind("btn_test_spin", f"SPIN {_test['mag']}% {dname}", "test_ready")
         dpg.set_value("txt_test_status",
-                      "Idle. SPIN needs the password, then a re-press every 5 s.")
+                      "Idle. SPIN needs the password once, then re-press every 5 s.")
         dpg.configure_item("txt_test_status", color=C_DIM[:3])
 
     if kill:
         _set_banner("KILLSWITCH LATCHED",
                     "failsafe sent - power cycle the robot to recover", "kill")
+    elif test_live:
+        _set_banner(f"WEAPON TEST  {_test['mag']}% {dname}",
+                    f"bench test live - re-press SPIN within {remaining:0.1f}s", "test")
     elif _test["enabled"]:
-        _set_banner(f"WEAPON TEST  {_test['mag']}% {'FWD' if _test['dir'] > 0 else 'REV'}",
-                    f"bench test live - re-press SPIN within {max(0.0, _test['deadline'] - now):0.1f}s",
-                    "test")
+        _set_banner("WEAPON TEST PAUSED", "press SPIN to resume", "test")
     elif armed and not locked:
         _set_banner("ARMED - WEAPON LIVE", "weapon controls enabled", "live")
     elif armed:
@@ -1128,6 +1105,7 @@ def main() -> None:
     last_send = 0.0
     prev_inv = prev_arm = prev_wpn = False
     prev_link_connected = (link.state == "connected")
+    prev_test_spin = False
 
     while dpg.is_dearpygui_running():
         now = time.time()
@@ -1153,21 +1131,22 @@ def main() -> None:
         motor_l, motor_r = drive.drive_bytes(
             DRIVE_MODES[_mode_idx]["mix"], axis_a, axis_b,
             mult_l=_mult["L"], mult_r=_mult["R"],
-            # Trim is applied by the robot, from its own saved value. Applying
-            # it here as well would double it. See cb_save_trim.
+            # Trim is applied by the robot; applying it here too would double it.
             invert=_gs["drive_inverted"],
         )
 
         if kill_raw:
             trigger_killswitch(link)
 
-        if _test["enabled"] and now >= _test["deadline"]:
-            _test["enabled"] = False
-            _log_add("Weapon test deadman expired - weapon off")
+        # A deadman lapse pauses (weapon off) but keeps the session armed, so a
+        # re-press resumes without the password. STOP or killswitch end it.
         if _gs["killswitch"]:
             _test["enabled"] = False
         test_spinning = test_should_spin(_test["enabled"], now, _test["deadline"],
                                          _gs["killswitch"], link.state == "connected")
+        if prev_test_spin and not test_spinning and _test["enabled"] and now >= _test["deadline"]:
+            _log_add("Weapon test paused - press SPIN to resume")
+        prev_test_spin = test_spinning
 
         if arm_raw and not prev_arm and not _test["enabled"]:
             _gs["armed"] = not _gs["armed"]

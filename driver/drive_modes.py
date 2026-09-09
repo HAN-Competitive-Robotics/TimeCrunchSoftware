@@ -1,25 +1,11 @@
-"""Control bindings, defined in code on purpose.
+"""Control bindings, defined in code (no runtime editor). Edit and restart.
 
-There is no runtime keybind editor. To change a binding, edit this file and
-restart. That trade is deliberate: a rebindable UI meant every machine drifted
-to a different layout, and nobody could answer "what does B6 do on this robot"
-without opening someone's profiles.json.
-
-Finding numbers: run `python station.py --calibrate`, move every stick and
-press every button, and it prints the axis and button indices for your pad.
-
-Axis indices below follow SDL's game-controller order, which is what pygame
-reports for an Xbox pad:
-
-    0 = left X    1 = left Y    2 = right X
-    3 = right Y   4 = left trigger  5 = right trigger
-
-Triggers rest at -1.0 and read +1.0 fully pressed.
+Find axis/button numbers with `python station.py --calibrate`. SDL/Xbox axis
+order: 0 left X, 1 left Y, 2 right X, 3 right Y, 4/5 triggers (rest -1, press +1).
 """
 from __future__ import annotations
 
-# Shared across every mode. Weapon and safety controls should not move when
-# you change how the robot steers.
+# Shared across modes: safety controls don't move when steering changes.
 _COMMON_BUTTONS: dict = {
     "weapon":       {"button": 10},
     "killswitch":   {"button": 1},

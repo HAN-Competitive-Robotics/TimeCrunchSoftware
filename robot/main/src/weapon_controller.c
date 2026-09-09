@@ -9,8 +9,7 @@
 #define OUTPUT_MIN   0.0f
 #define OUTPUT_MAX 100.0f
 
-/* Final gate on every commanded output. Applied after the ceiling so that a
- * misconfigured WEAPON_MAX_OUTPUT_PCT still cannot exceed the actuator range. */
+/* Final gate: ceiling, then actuator range. */
 static float clamp_output(float output)
 {
     if (output > WEAPON_MAX_OUTPUT_PCT) output = WEAPON_MAX_OUTPUT_PCT;
@@ -19,11 +18,7 @@ static float clamp_output(float output)
     return output;
 }
 
-/* Throttle to use when there is no usable RPM feedback.
- *
- * Derived from the commanded target rather than a single constant, so idle and
- * attack stay distinguishable with the loop open. Anything at or above the
- * attack target gets the attack level; any other non-zero command gets idle. */
+/* Open-loop throttle from the target, so idle and attack stay distinct. */
 static float open_loop_output(float target_rpm)
 {
     if (target_rpm <= 0.0f)                 return 0.0f;
@@ -104,19 +99,11 @@ void weapon_controller_update(void)
     if (dt <= 0.0f)            dt = 0.0f;
     if (dt > WEAPON_MAX_DT_S)  dt = WEAPON_MAX_DT_S;
 
-    // Run open-loop when there is no usable RPM. The two ways that happens are
-    // NOT the same and must not be treated the same:
-    //
-    //   - No sensor fitted: open-loop IS the normal, intended mode, so honour
-    //     the commanded level. Attack can be full throttle.
-    //   - Sensor fitted but silent (fault): speed control has been lost
-    //     mid-run, so back off to a conservative feed-forward level rather than
-    //     driving the open-loop attack percentage blind. Capped at WEAPON_FF,
-    //     so it never exceeds the normal command and idle still stays idle.
-    //
-    // Either way hold the integrator at zero: closing the loop without feedback
-    // lets rpm read 0, makes the error the whole target, and winds the output
-    // to saturation on a weapon that may well be spinning.
+    // Open-loop with no usable RPM. Two distinct cases:
+    //   - No sensor fitted: normal mode, honour the commanded level.
+    //   - Sensor fitted but silent (fault): back off to WEAPON_FF, don't drive
+    //     the attack percent blind.
+    // Both hold the integrator at zero (no feedback would else wind it up).
     if (!WEAPON_HALL_SENSOR_FITTED) {
         s_integral = 0.0f;
         float output = clamp_output(open_loop_output(s_target_rpm));
@@ -137,17 +124,8 @@ void weapon_controller_update(void)
     float rpm   = hall_sensor_get_rpm();
     float error = s_target_rpm - rpm;
 
-    // Anti-windup by conditional integration.
-    //
-    // Integrate the candidate step first, then keep it only if the resulting
-    // command is inside the actuator range, or if the error is pushing back
-    // out of the limit it is already against. An integrator that keeps
-    // accumulating while the throttle is pinned at 100% cannot make the
-    // weapon spin faster; all it does is store up a delay before the
-    // controller can respond to the error changing sign.
-    //
-    // The magnitude clamp below is kept as a second line of defence so that a
-    // single bad dt cannot park the integral somewhere extreme.
+    // Anti-windup: keep the integrated step only if the command stays in range,
+    // or if the error is pushing back out of the limit it's against.
     float candidate = s_integral + error * dt;
     float unsat     = WEAPON_FF + WEAPON_KP * error + WEAPON_KI * candidate;
 
@@ -159,18 +137,14 @@ void weapon_controller_update(void)
         s_integral = candidate;
     }
 
-    // Bound the integral so that KI * integral can never exceed the throttle
-    // range on its own. With KI == 0 this collapses to zero, so no integral
-    // accumulates while the loop is open and there is no stored surprise the
-    // first time KI is tuned to a non-zero value.
+    // Bound the integral so KI*integral can't exceed the throttle range alone.
     float max_integral = (WEAPON_KI != 0.0f) ? (OUTPUT_MAX - WEAPON_FF) / WEAPON_KI : 0.0f;
     if (s_integral >  max_integral) s_integral =  max_integral;
     if (s_integral < -max_integral) s_integral = -max_integral;
 
     float output = WEAPON_FF + WEAPON_KP * error + WEAPON_KI * s_integral;
 
-    // Clamp the magnitude before applying direction. reverse_flag (+1/-1)
-    // selects spin direction; the PI magnitude is always non-negative.
+    // Clamp magnitude before applying direction (reverse_flag is +1/-1).
     output = clamp_output(output);
 
     publish(s_target_rpm, rpm, error, output, true);
