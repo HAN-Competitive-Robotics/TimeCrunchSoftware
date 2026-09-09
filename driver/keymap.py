@@ -1,10 +1,6 @@
-"""Key-name to DPG key-constant mapping.
+"""Key-name (drive_modes.py) to DPG key-constant mapping.
 
-drive_modes.py names keys as strings ("w", "space", "lshift"). This maps them
-to the integer constants InputMapper passes to dpg.is_key_down().
-
-Display strings are deliberately ASCII: DearPyGui only loads the basic Latin
-glyph range, so arrows and box-drawing characters render as "?".
+Display strings are ASCII: DPG only loads basic Latin, so arrows render as "?".
 """
 from __future__ import annotations
 import dearpygui.dearpygui as dpg

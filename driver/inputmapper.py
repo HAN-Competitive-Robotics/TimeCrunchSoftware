@@ -1,10 +1,7 @@
-"""Joystick (pygame) + keyboard (DPG) input, driven by a fixed drive mode.
+"""Joystick (pygame) + keyboard (DPG) input for a fixed drive mode.
 
-Pygame is initialised with SDL_VIDEODRIVER=dummy so it never creates its own
-window. The joystick subsystem works fine; DPG owns the window and handles the
-keyboard via dpg.is_key_down().
-
-Bindings come from driver/drive_modes.py and are not editable at runtime.
+Pygame runs headless (SDL_VIDEODRIVER=dummy); DPG owns the keyboard. Bindings
+come from drive_modes.py.
 """
 from __future__ import annotations
 import pygame
@@ -28,8 +25,7 @@ class InputMapper:
             self._attach(0)
 
     def set_mode(self, mode: dict) -> None:
-        """Switching modes zeroes the keyboard ramps so a half-held axis from
-        the previous mode cannot leak into the new one."""
+        """Zero the keyboard ramps so a half-held axis can't leak across modes."""
         self.mode = mode
         self._a_f = 0.0
         self._b_f = 0.0
@@ -85,12 +81,7 @@ class InputMapper:
         return raw
 
     def _trigger_pair(self, cfg: dict) -> float:
-        """Two triggers into one signed axis.
-
-        Triggers rest at -1.0 and read +1.0 pressed, so each is rescaled to
-        0..1 before subtracting. Pressing both cancels out, which is the same
-        thing the game does.
-        """
+        """Two triggers into one signed axis (each rescaled -1..1 -> 0..1)."""
         pos = (self._raw_axis(cfg["trigger_pos"]) + 1.0) / 2.0
         neg = (self._raw_axis(cfg["trigger_neg"]) + 1.0) / 2.0
         return max(-1.0, min(1.0, pos - neg))
@@ -140,11 +131,7 @@ class InputMapper:
     # ── Public interface ──────────────────────────────────────────────────────
 
     def read_axes(self) -> tuple[float, float]:
-        """The two normalised axes this mode's mixer expects.
-
-        Tank: (left stick Y, right stick Y).
-        Arcade: (throttle, steer). Rocket League: (trigger throttle, steer).
-        """
+        """The two normalised axes the mode's mixer expects."""
         a, self._a_f = self._axis_value(self.mode["axis_a"], "a_pos", "a_neg", self._a_f)
         b, self._b_f = self._axis_value(self.mode["axis_b"], "b_pos", "b_neg", self._b_f)
         return a, b

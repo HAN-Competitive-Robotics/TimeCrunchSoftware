@@ -1,11 +1,6 @@
-"""Drive mixing: two normalised axes in, two motor bytes out.
+"""Drive mixing: two axes (-1..+1) in, two motor bytes (0..255, 127 stop) out.
 
-Deliberately free of pygame and dearpygui so it can be tested directly.
-Every function takes and returns plain numbers.
-
-Axis convention: both inputs are -1.0 .. +1.0, positive meaning forward or
-right. Outputs are 0..255 with 127 as stop, which is the wire format described
-in docs/communication.md.
+No pygame/dearpygui, so it's directly testable.
 """
 from __future__ import annotations
 
@@ -23,8 +18,7 @@ def to_byte(v: float) -> int:
 
 
 def mix_tank(left_y: float, right_y: float) -> tuple[float, float]:
-    """One stick per side. No mixing at all, which is what makes it easy to
-    drive badly but impossible to misunderstand."""
+    """One stick per side, no mixing."""
     return _clamp_unit(left_y), _clamp_unit(right_y)
 
 
@@ -50,8 +44,7 @@ MIXERS = {
 
 
 def mix(mode: str, a: float, b: float) -> tuple[float, float]:
-    """Dispatch to a mixer by name. Unknown modes fall back to tank, because
-    losing steering is safer than crashing the control loop mid-match."""
+    """Dispatch to a mixer by name; unknown modes fall back to tank."""
     return MIXERS.get(mode, mix_tank)(a, b)
 
 
