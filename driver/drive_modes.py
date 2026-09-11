@@ -6,11 +6,13 @@ order: 0 left X, 1 left Y, 2 right X, 3 right Y, 4/5 triggers (rest -1, press +1
 from __future__ import annotations
 
 # Shared across modes: safety controls don't move when steering changes.
+# Button indices measured with --calibrate on the team's Xbox pad (Windows
+# XInput order): 1 = B, 4 = LB, 5 = RB, 6 = View.
 _COMMON_BUTTONS: dict = {
-    "weapon":       {"button": 10},
-    "killswitch":   {"button": 1},
-    "arm":          {"button": 6},
-    "drive_invert": {"button": 9},
+    "weapon":       {"button": 5},   # RB
+    "killswitch":   {"button": 1},   # B
+    "arm":          {"button": 6},   # View
+    "drive_invert": {"button": 4},   # LB
 }
 
 _COMMON_KEYS: dict = {

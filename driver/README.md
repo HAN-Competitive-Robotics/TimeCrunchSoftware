@@ -56,11 +56,11 @@ Shared controls in every mode:
 
 | Function | Gamepad | Keyboard |
 |----------|---------|----------|
-| Weapon toggle | B10 | Space |
+| Weapon toggle | RB (B5) | Space |
 | Weapon attack / reverse | RT | LShift |
-| Killswitch | B1 | F |
-| Arm | B6 | A |
-| Drive invert | B9 | I |
+| Killswitch | B (B1) | F |
+| Arm | View (B6) | A |
+| Drive invert | LB (B4) | I |
 
 The weapon only responds while the robot is armed, the killswitch is clear,
 and the weapon is unlocked. It re-locks automatically on disarm and on
