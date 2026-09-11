@@ -302,7 +302,8 @@ void task_weapon(void *pvParameters)
             state = new_state;
         }
 
-        /* Weapon: 127=off, 0-63=attack rev, 64-126=idle rev, 128-190=idle, 191-255=attack */
+        /* Weapon: 127=off, 0-63=attack rev, 64-126=soft-start ramp (fwd),
+         * 128-190=idle, 191-255=attack */
         bool weapon_must_stop = state.hard_failsafe || state.failsafe_active ||
                                 !state.packet_received || safety_weapon_inhibited();
         if (weapon_must_stop) {
@@ -318,8 +319,11 @@ void task_weapon(void *pvParameters)
             weapon_controller_set_reverse_flag(state.weapon_throttle >= 191 ? 1 : -1);
             weapon_controller_set_target_rpm(WEAPON_ATTACK_RPM);
             weapon_controller_update();
+        } else if (state.weapon_throttle < 127) {
+            /* Held spin-up: forward ramp 0..100% over WEAPON_SOFT_START_S. */
+            weapon_controller_soft_start();
         } else {
-            weapon_controller_set_reverse_flag(state.weapon_throttle > 127 ? 1 : -1);
+            weapon_controller_set_reverse_flag(1);
             weapon_controller_set_target_rpm(WEAPON_IDLE_RPM);
             weapon_controller_update();
         }

@@ -197,6 +197,41 @@ static void test_bench_test_percent(void)
     check("bench test output magnitude matches", (int)t.output == 30, NULL);
 }
 
+/* ------------------------------------------------------------------ */
+/* 7. Soft start: held command ramps 0..100% forward over 5 s.         */
+/* ------------------------------------------------------------------ */
+static void soft_step(void) { g_now_us += 10000; weapon_controller_soft_start(); }
+
+static void test_soft_start_ramp(void)
+{
+    char buf[128];
+    weapon_controller_init();
+    weapon_controller_reset();
+    /* A stale reverse flag must not make the ramp spin backwards. */
+    weapon_controller_set_reverse_flag(-1);
+
+    for (int i = 0; i < 250; i++) soft_step();   /* 2.5 s */
+    weapon_telemetry_t t; weapon_controller_get_telemetry(&t);
+    snprintf(buf, sizeof buf, "output=%.1f%% at 2.5 s", t.output);
+    check("half way through the ramp sits near 50%",
+          fabsf(t.output - 50.0f) < 2.0f, buf);
+    check("ramp drives the motor forward regardless of reverse flag",
+          g_last_weapon_cmd > 0, NULL);
+
+    for (int i = 0; i < 300; i++) soft_step();   /* 5.5 s total */
+    weapon_controller_get_telemetry(&t);
+    snprintf(buf, sizeof buf, "output=%.1f%% after 5.5 s", t.output);
+    check("ramp tops out at 100% and holds", fabsf(t.output - 100.0f) < 0.001f, buf);
+    check("no integral accumulates during soft start", fabsf(t.integral) < 1e-6f, buf);
+
+    /* Releasing (any other path running) restarts the ramp from zero. */
+    weapon_controller_reset();
+    soft_step();
+    weapon_controller_get_telemetry(&t);
+    snprintf(buf, sizeof buf, "output=%.1f%% on first step after reset", t.output);
+    check("reset restarts the ramp from 0", t.output < 1.0f, buf);
+}
+
 int main(void)
 {
     printf("\nweapon_controller host tests  (KP=%.3f KI=%.3f FF=%.0f)\n", WEAPON_KP, WEAPON_KI, WEAPON_FF);
@@ -207,6 +242,7 @@ int main(void)
     test_output_bounds();
     test_reset_clears_state();
     test_bench_test_percent();
+    test_soft_start_ramp();
     printf("--------------------------------------------------------------------------\n");
     printf("%s (%d failure%s)\n\n", failures ? "FAILURES" : "ALL PASS", failures, failures == 1 ? "" : "s");
     return failures != 0;

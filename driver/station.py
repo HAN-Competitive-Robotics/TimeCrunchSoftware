@@ -184,7 +184,7 @@ def _hex_packet(ml: int, mr: int, wb: int, fb: int) -> bytes:
     return f"{ml:02x}{mr:02x}{wb:02x}{fb:02x}\n".encode()
 
 
-WEAPON_BYTES = {"safe": 127, "idle": 160, "attack": 255, "idle_rev": 95}
+WEAPON_BYTES = {"safe": 127, "idle": 160, "attack": 255, "spinup": 95}
 NEUTRAL = 127
 
 
@@ -849,8 +849,9 @@ def _build_ui(cfg: dict, link: SerialLink, mapper: InputMapper) -> None:
             dpg.add_text("SAFE   = weapon off         (byte 127)")
             dpg.add_text("IDLE   = spinning low fwd   (byte 160)")
             dpg.add_text("ATTACK = full speed fwd     (byte 255)")
-            dpg.add_text("REV    = spinning low rev   (byte 95)")
-            dpg.add_text("Atk/Rev key: hold in IDLE=attack, hold in SAFE=reverse spin.")
+            dpg.add_text("SPINUP = held fwd ramp      (byte 95)")
+            dpg.add_text("Atk key: hold in IDLE=attack, hold in SAFE=slow spin-up "
+                         "(5 s to 100%, release stops).")
         with dpg.tooltip("ind_wpn_lock"):
             dpg.add_text("Unlocking asks for the weapon password.")
             dpg.add_text("Arm first: unlock is refused while disarmed.")
@@ -956,8 +957,8 @@ def _update_ui(link: SerialLink, mapper: InputMapper,
     dpg.configure_item("btn_kill", show=not kill)
     dpg.configure_item("btn_kill_reset", show=kill)
     _set_ind("ind_weapon",
-             {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK", "idle_rev": "WEAPON REV"}[ws],
-             {"safe": "panel",       "idle": "warn",        "attack": "attack",         "idle_rev": "warn"}[ws])
+             {"safe": "WEAPON SAFE", "idle": "WEAPON IDLE", "attack": "WEAPON ATTACK", "spinup": "WEAPON SPIN-UP"}[ws],
+             {"safe": "panel",       "idle": "warn",        "attack": "attack",         "spinup": "warn"}[ws])
     _set_ind("ind_drive",
              "DRIVE INVERTED" if inv  else "DRIVE NORMAL",
              "warn"           if inv  else "panel")
@@ -1160,15 +1161,15 @@ def main() -> None:
             _gs["weapon_state"] = "safe"
         else:
             if wpn_btn and not prev_wpn:
-                # Toggle weapon on (fwd idle) / off — also exits reverse spin
-                _gs["weapon_state"] = "idle" if _gs["weapon_state"] in ("safe", "idle_rev") else "safe"
+                # Toggle weapon on (fwd idle) / off — also exits soft spin-up
+                _gs["weapon_state"] = "idle" if _gs["weapon_state"] in ("safe", "spinup") else "safe"
             elif _gs["weapon_state"] == "idle" and wpn_rev:
                 _gs["weapon_state"] = "attack"       # hold to escalate fwd
             elif _gs["weapon_state"] == "attack" and not wpn_rev:
                 _gs["weapon_state"] = "idle"
             elif _gs["weapon_state"] == "safe" and wpn_rev:
-                _gs["weapon_state"] = "idle_rev"     # hold in safe = reverse spin
-            elif _gs["weapon_state"] == "idle_rev" and not wpn_rev:
+                _gs["weapon_state"] = "spinup"       # hold in safe = slow spin-up
+            elif _gs["weapon_state"] == "spinup" and not wpn_rev:
                 _gs["weapon_state"] = "safe"
 
         weapon_byte = WEAPON_BYTES[_gs["weapon_state"]]

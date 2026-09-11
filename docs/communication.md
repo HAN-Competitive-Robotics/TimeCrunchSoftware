@@ -34,11 +34,13 @@ Arcade drive: mixing happens in the station before serialisation.
 
 | Range | Weapon state | Robot action |
 |---|---|---|
-| 0 | Off | Weapon motor stopped |
-| 1–127 | Idle | Target: `WEAPON_IDLE_RPM` (3000 RPM) |
-| 128–255 | Attack | Target: `WEAPON_ATTACK_RPM` (5000 RPM) |
+| 127 | Off | Weapon motor stopped |
+| 128–190 | Idle | Target: `WEAPON_IDLE_RPM` (3000 RPM); open-loop `WEAPON_OL_IDLE_PCT` (50%) |
+| 191–255 | Attack | Target: `WEAPON_ATTACK_RPM` (5000 RPM); open-loop `WEAPON_OL_ATTACK_PCT` (100%) |
+| 64–126 | Soft start | Forward throttle ramp, 0→100% over `WEAPON_SOFT_START_S` (5 s) while held |
+| 0–63 | Attack reverse | As attack, spinning reverse (not sent by the station) |
 
-The driver station sends only three values in practice: `0`, `64`, `255`. The byte encodes *desired mode*, not a throttle percentage.
+The driver station sends only four values in practice: `127`, `160`, `255`, `95`. The byte encodes *desired mode*, not a throttle percentage.
 
 **Byte 3 — Killswitch and opcode**
 
