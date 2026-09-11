@@ -6,7 +6,7 @@ from keymap import init_keymap
 
 
 def calibrate() -> None:
-    pygame.joystick.init()
+    pygame.init()
 
     dpg.create_context()
     init_keymap()
