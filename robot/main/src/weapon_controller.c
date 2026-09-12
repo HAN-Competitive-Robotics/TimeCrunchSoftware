@@ -31,6 +31,7 @@ static int64_t s_last_time    = 0;
 static float   s_target_rpm   = WEAPON_ATTACK_RPM;
 static int8_t  reverse_flag   = 1; // 1 or -1
 static float   s_last_output  = 0.0f;
+static float   s_ramp_pct     = 0.0f;  // soft-start ramp position, 0..100
 
 static weapon_telemetry_t s_telemetry = {0};
 
@@ -57,6 +58,7 @@ void weapon_controller_reset(void)
     s_integral    = 0.0f;
     s_last_time   = esp_timer_get_time();
     s_last_output = 0.0f;
+    s_ramp_pct    = 0.0f;
 }
 
 float weapon_controller_get_output(void)
@@ -85,9 +87,31 @@ void weapon_controller_test(int pct)
     int8_t dir = (pct < 0) ? -1 : 1;
     float  mag = clamp_output((float)(pct < 0 ? -pct : pct));
     s_integral  = 0.0f;
+    s_ramp_pct  = 0.0f;
     s_last_time = esp_timer_get_time();
     publish(0.0f, 0.0f, 0.0f, mag, false);
     motor_set_throttle(MOTOR_WEAPON, (int)mag * dir);
+}
+
+void weapon_controller_soft_start(void)
+{
+    int64_t now = esp_timer_get_time();
+    float   dt  = (float)(now - s_last_time) / 1e6f;
+    s_last_time = now;
+
+    if (dt <= 0.0f)            dt = 0.0f;
+    if (dt > WEAPON_MAX_DT_S)  dt = WEAPON_MAX_DT_S;
+
+    // Pure open-loop throttle ramp: no RPM target, no PI, forward only.
+    // The integrator stays cleared so a later return to closed-loop control
+    // does not resume against a stale integral.
+    s_integral = 0.0f;
+    s_ramp_pct += dt * (100.0f / WEAPON_SOFT_START_S);
+    if (s_ramp_pct > 100.0f) s_ramp_pct = 100.0f;
+
+    float output = clamp_output(s_ramp_pct);
+    publish(0.0f, 0.0f, 0.0f, output, false);
+    motor_set_throttle(MOTOR_WEAPON, (int)output);
 }
 
 void weapon_controller_update(void)
@@ -95,6 +119,7 @@ void weapon_controller_update(void)
     int64_t now = esp_timer_get_time();
     float   dt  = (float)(now - s_last_time) / 1e6f;
     s_last_time = now;
+    s_ramp_pct  = 0.0f;   /* leaving soft start restarts its ramp from 0 */
 
     if (dt <= 0.0f)            dt = 0.0f;
     if (dt > WEAPON_MAX_DT_S)  dt = WEAPON_MAX_DT_S;

@@ -184,6 +184,8 @@ safe → idle (RB press)
 idle → attack (RT held)
 attack → idle (RT released)
 idle → safe (RB press)
+safe → spinup (RT held: forward ramp, 5 s to 100%)
+spinup → safe (RT released)
 any → safe (disarm or failsafe)
 ```
 

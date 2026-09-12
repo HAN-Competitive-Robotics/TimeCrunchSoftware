@@ -46,7 +46,7 @@ WEAPON_BYTES = _ns["WEAPON_BYTES"]
 NEUTRAL = _ns["NEUTRAL"]
 trim_packet = _ns["trim_packet"]
 
-WEAPON_STATES = ["safe", "idle", "attack", "idle_rev"]
+WEAPON_STATES = ["safe", "idle", "attack", "spinup"]
 fails: list[str] = []
 
 
@@ -118,7 +118,7 @@ hdr("6. Weapon byte mapping matches the documented protocol")
 check("safe     = 127 (motor centre, no spin)", WEAPON_BYTES["safe"] == 127)
 check("idle     = 160 (forward idle)",          WEAPON_BYTES["idle"] == 160)
 check("attack   = 255 (full forward)",          WEAPON_BYTES["attack"] == 255)
-check("idle_rev =  95 (reverse idle)",          WEAPON_BYTES["idle_rev"] == 95)
+check("spinup   =  95 (held fwd spin-up ramp)", WEAPON_BYTES["spinup"] == 95)
 check("every weapon byte stays in range",
       all(0 <= v <= 255 for v in WEAPON_BYTES.values()))
 

@@ -17,8 +17,11 @@
 #endif
 
 // Open-loop levels used when there is no usable RPM. Clamped by the ceiling.
-#define WEAPON_OL_IDLE_PCT      30.0f
+#define WEAPON_OL_IDLE_PCT      50.0f
 #define WEAPON_OL_ATTACK_PCT    100.0f
+
+// Soft start: seconds for the held ramp command to go from 0% to 100%.
+#define WEAPON_SOFT_START_S     5.0f
 
 // Closed-loop gains; both zero = open-loop. Don't guess them - tune per
 // docs/firmware/weapon-tuning.md. Overridable with -DWEAPON_KP=... for tests.
@@ -50,6 +53,14 @@ void weapon_controller_reset(void);
 
 // Run one control step and drive the weapon ESC. Call at 100 Hz.
 void weapon_controller_update(void);
+
+// Soft start: run one 100 Hz step of the held spin-up ramp instead of
+// update(). Output climbs linearly from 0% to 100% over WEAPON_SOFT_START_S
+// while called every step, always spinning forward, clamped by
+// WEAPON_MAX_OUTPUT_PCT. The ramp restarts from 0% whenever any other path
+// (update, test, reset) runs, so releasing and re-holding never resumes
+// part-way up.
+void weapon_controller_soft_start(void);
 
 // Wireless bench test: direct open-loop percent, |pct| clamped by the ceiling,
 // sign = direction. No RPM loop; clears the integrator.

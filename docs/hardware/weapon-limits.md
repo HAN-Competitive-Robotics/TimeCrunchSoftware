@@ -136,7 +136,7 @@ just a choice, it is part of compliance: 5S fails both limits.
 
 `WEAPON_MAX_OUTPUT_PCT` in `robot/main/include/weapon_controller.h` caps
 throttle. It is now set to **100%** (full), with open-loop attack
-(`WEAPON_OL_ATTACK_PCT`) at **100%** and idle (`WEAPON_OL_IDLE_PCT`) at **30%**,
+(`WEAPON_OL_ATTACK_PCT`) at **100%** and idle (`WEAPON_OL_IDLE_PCT`) at **50%**,
 because the calculation above shows 100% is inside both limits with margin, so
 holding it lower only costs weapon performance.
 

@@ -87,7 +87,13 @@ class SerialLink:
         if not port:
             return False
         try:
-            self.ser = serial.Serial(port, self.cfg["serial"]["baudrate"], timeout=0.1)
+            # write_timeout matters: without it a write blocks forever when the
+            # dongle stops draining USB (hung firmware, stalled CDC), freezing
+            # the single-threaded UI. A timed-out write raises
+            # SerialTimeoutException (a SerialException), so send() drops the
+            # link and the normal reconnect / removal-failsafe path takes over.
+            self.ser = serial.Serial(port, self.cfg["serial"]["baudrate"],
+                                     timeout=0.1, write_timeout=0.1)
             self.port_name = port
             self.state = "connected"
             self.last_ok = time.time()

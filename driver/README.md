@@ -57,7 +57,7 @@ Shared controls in every mode:
 | Function | Gamepad | Keyboard |
 |----------|---------|----------|
 | Weapon toggle | RB (B5) | Space |
-| Weapon attack / reverse | RT | LShift |
+| Weapon attack / spin-up | RT | LShift |
 | Killswitch | B (B1) | F |
 | Arm | View (B6) | A |
 | Drive invert | LB (B4) | I |
@@ -147,7 +147,7 @@ The station sends one line of ASCII hex at 50 Hz (`rate_hz` in
 ```
 
 Motor bytes are 0-255 with 127 as centre. Weapon bytes: 127 safe, 160 idle,
-255 attack, 95 reverse idle. Failsafe byte 255 latches the robot into deep
+255 attack, 95 held forward spin-up ramp. Failsafe byte 255 latches the robot into deep
 sleep until power cycled; 0 otherwise.
 
 ## Troubleshooting
